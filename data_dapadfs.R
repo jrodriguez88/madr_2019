@@ -14,6 +14,8 @@ library(naniar)
 library(data.table)
 library(raster)
 library(sf)
+library(plotly)
+library(htmlwidgets)
 
 load(file = "catalog.rds")
 
@@ -164,7 +166,7 @@ Municipios <- tibble(lon = c(-75.1148, -73.6116, -75.6362),
 DEM_dpto <- DEM %>% crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
   rasterToPoints() %>% as_tibble() %>% rename(Alt = COL_msk_alt)
 
-unique(ws_selected$var)
+#unique(ws_selected$var)
 
 pp <- ggplot()  + 
   geom_tile(data = DEM_dpto, aes(x, y, fill = Alt)) + 
@@ -196,7 +198,11 @@ pp <- ggplot()  +
     strip.text = element_text(face = "bold"))
 
 
-pp %>% plotly::ggplotly()
+pp %>% plotly::ggplotly()   # EL mapa es interactivo, puedes hacer zoom a cada departamento
+
+##########################
+#################
+##### AQUI SE ME REINICIO EL COMPU Y NO PUDE TERMINAR MI FUCKIN FUNCION
 
 make_map <- function(ws_selected, var, ){
   
