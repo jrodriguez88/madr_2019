@@ -147,120 +147,171 @@ ideam_raw <- wdata_tb %>% map( ~.x %>%
 ws_selected <- ideam_raw %>% bind_rows(.id = "var") %>%
   dplyr::select(-data) %>% 
   left_join(catalog %>% 
-              dplyr::select(id, Nombre, Clase, Departamento, Municipio,lat, lon))
+              dplyr::select(id, Nombre, Categoria, Departamento, Municipio,lat, lon))
 # ajam <- raster::getData('GADM' , country='COL', level=1) 
 
 
 
 ##### MMMMMMAAAAAPPPAAAAAssss
+########################## Export plots *.png and *.html 
 
-COL_shp <-  getData('GADM', country='COL', level=1) %>% st_as_sf() 
-DPTO_shp <- COL_shp %>% filter(NAME_1 %in% c('Tolima', 'Cesar', 'Huila')) %>% 
-  mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
-         lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+departamento <- c('Tolima', 'Cesar', 'Huila')
+localidad <- tibble(lon = c(-75.1148, -73.6116, -75.6362),
+                    lat = c(4.1941, 8.30686, 2.1954),
+                    Municipio = c("San Juan", "Aguachica", "Garzon"))
+variable <- unique(ws_selected$var)
 
-Localidad <- tibble(lon = c(-75.1148, -73.6116, -75.6362),
-                   lat = c(4.1941, 8.30686, 2.1954),
-                   Municipio = c("San Juan", "Aguachica", "Garzon"))
-
-DEM_dpto <- getData('alt', country = 'COL') %>% 
-  crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
-  rasterToPoints() %>% as_tibble() %>% 
-  rename(Alt = COL_msk_alt)
-
-#unique(ws_selected$var)
-
-pp <- ggplot()  + 
-  geom_tile(data = DEM_dpto, aes(x, y, fill = Alt)) + 
-  scale_fill_distiller(palette = "Greys") +
-  geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
-  geom_point(data = ws_selected, aes(x = lon, y = lat   ,
-                                     colour = na_percent,
-                                     label = id,
-                                     label2 = Municipio,
-                                     label3 = Nombre,
-                                     label4 = Clase)) +
-  viridis::scale_colour_viridis(na.value="white",  direction = -1) + 
-  geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
-  geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
-  geom_point(data = Localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red") +
-#  facet_wrap(~Departamento) +
-  theme_bw() +
-  labs(title = paste0("Datos meteorologicos disponibles"), 
-       x = 'Longitud', 
-       y = 'Latitud', 
-       colour = '% NA',
-       caption = "Fuente: IDEAM") + 
-  theme(
-    #axis.text.x = element_text(angle = 90),
-    #    legend.position="bottom",
-    #        legend.title = element_blank(),
-    panel.grid.minor = element_blank(),
-    strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
-    strip.text = element_text(face = "bold"))
-
-
-pp %>% plotly::ggplotly()   # EL mapa es interactivo, puedes hacer zoom a cada departamento
-
-##########################
-#################
-##### AQUI SE ME REINICIO EL COMPU Y NO PUDE TERMINAR MI FUCKIN FUNCION
-
-make_map <- function(ws_selected, var, ){
+### Function to make map of weather stations by meteorological variable and department
+make_map <- function(ws_data, variable, departamento, localidad) {
+  
+  ws_data <- ws_data %>% dplyr::filter(var == variable)
+  labels <- enframe(variable) %>% 
+    mutate(label = case_when(value == "prec" ~ "Precipitacion", 
+                             value == "rhum" ~ "Humedad_Relativa",
+                             value == "sbright" ~ "Brillo_Solar",
+                             value == "tmax" ~ "Temperatura_Maxima",
+                             value == "tmin" ~ "Temperatura_Minima",
+                             TRUE ~ value)) %>%
+    pull(label)
+    
+  
+#  var <- unique(ws_data$var)
+  
+  stopifnot(require(sf))
+  
+  COL_shp <-  getData('GADM', country='COL', level=1) %>% st_as_sf() 
+  DPTO_shp <- COL_shp %>% filter(NAME_1 %in% departamento) %>% 
+    mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+           lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+  
+  DEM_dpto <- getData('alt', country = 'COL') %>% 
+    crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
+    rasterToPoints() %>% as_tibble() %>% 
+    rename(Alt = COL_msk_alt)
   
   
+  pp <- ggplot()  + 
+    geom_tile(data = DEM_dpto, aes(x, y, fill = Alt)) + 
+    scale_fill_distiller(palette = "Greys") +
+    geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
+    geom_point(data = ws_data, aes(x = lon, y = lat   ,
+                                       colour = na_percent,
+                                       label = id,
+                                       label2 = Municipio,
+                                       label3 = Nombre,
+                                       label4 = Categoria)) +
+    viridis::scale_colour_viridis(na.value="white",  direction = -1) + 
+    geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+    geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
+#    geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red") +
+    #  facet_wrap(~Departamento) +
+    theme_bw() +
+    labs(title = paste0("Datos disponibles - ", labels), 
+         x = 'Longitud', 
+         y = 'Latitud', 
+         colour = '% NA',
+         caption = "Fuente: IDEAM") + 
+    theme(
+      #axis.text.x = element_text(angle = 90),
+      #    legend.position="bottom",
+      #        legend.title = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+      strip.text = element_text(face = "bold"))
+  
+# if_else(is.na(localidad), pp, pp + geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red"))
+  if(is.na(localidad)){
+    pp <- pp
+    } else {
+      pp <- pp + geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red")}
+  
+  return(pp)
+ 
+}
+
+make_map_by <- function(ws_data, variable, departamento, localidad = NA) {
+  
+  labels <- enframe(variable) %>% 
+    mutate(label = case_when(value == "prec" ~ "Precipitacion", 
+                             value == "rhum" ~ "Humedad_Relativa",
+                             value == "sbright" ~ "Brillo_Solar",
+                             value == "tmax" ~ "Temperatura_Maxima",
+                             value == "tmin" ~ "Temperatura_Minima",
+                             TRUE ~ value)) %>%
+    pull(label)
+  
+  
+  #  var <- unique(ws_data$var)
+  
+  stopifnot(require(sf))
+  
+  DPTO_shp <- getData('GADM', country='COL', level=1) %>% st_as_sf()  %>%
+    filter(NAME_1 %in% departamento) %>% 
+    mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+           lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+  
+  DEM_dpto <- getData('alt', country = 'COL') %>% 
+    crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
+    rasterToPoints() %>% as_tibble() %>% 
+    rename(Alt = COL_msk_alt)
+  
+  ws_data <- ws_data %>% filter(Departamento == toupper(stri_trans_general(departamento,"Latin-ASCII")))
+  pp <- ggplot()  + 
+    geom_tile(data = DEM_dpto, aes(x, y, fill = Alt)) + 
+    scale_fill_distiller(palette = "Greys") +
+#    geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
+    geom_point(data = ws_data, aes(x = lon, y = lat   ,
+                                   colour = na_percent,
+                                   label = id,
+                                   label2 = Municipio,
+                                   label3 = Nombre,
+                                   label4 = Categoria)) + facet_grid(~var) + 
+    viridis::scale_colour_viridis(na.value="white",  direction = -1) + 
+#    geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+    geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
+    #    geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red") +
+    #  facet_wrap(~Departamento) +
+    theme_bw() +
+    labs(title = paste0("Datos disponibles - ", departamento), 
+         x = 'Longitud', 
+         y = 'Latitud', 
+         colour = '% NA',
+         caption = "Fuente: IDEAM") + 
+    theme(
+      #axis.text.x = element_text(angle = 90),
+      #    legend.position="bottom",
+      #        legend.title = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+      strip.text = element_text(face = "bold"))
+  
+  # if_else(is.na(localidad), pp, pp + geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red"))
+  if(is.na(localidad)){
+    pp <- pp
+  } else {
+    pp <- pp + geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red")}
+  
+  return(pp)
   
 }
 
-# Tolima 
 
-Tolima <- ws_selected %>% filter(Departamento == 'TOLIMA')
-T_shp <- COL_shp %>% filter(NAME_1 %in% c('Tolima'))
-DEM <- getData('alt', country='COL', mask=TRUE) 
-DEM_tol <- DEM %>% crop(T_shp) %>% mask(T_shp) %>% 
-  rasterToPoints() %>% as_tibble() %>% rename(Alt = COL_msk_alt)
+##Output folder
+path <- getwd()
+dir.create(paste0(path, "/plots_ideam"))
 
-pp <- ggplot() + geom_tile(data = DEM_tol, aes(x, y, fill = Alt)) + 
-  scale_fill_distiller(palette = "Greys") +
-  geom_point(data = Tolima, aes(x = lon, y = lat   ,
-                                colour = na_percent,
-                                label = Municipio,
-                                label2 = Nombre, label3 = id)) + facet_grid(~var) + 
-  viridis::scale_colour_viridis(na.value="white",  direction = -1) + 
-  geom_sf(data = T_shp, fill = NA, color = gray(.1)) +
-  geom_point(data = san_juan, aes(x = lon, y =  lat), colour = 'red') +
-  theme_bw() +
-  labs(title = "TOLIMA. Estaciones Pluviometricas", 
-       x = 'Longitud', 
-       y = 'Latitud', 
-       colour = '% NA',
-       caption = "Fuente: IDEAM") + 
-  theme(
-    #axis.text.x = element_text(angle = 90),
-#    legend.position="bottom",
-    #        legend.title = element_blank(),
-    panel.grid.minor = element_blank(),
-    strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
-    strip.text = element_text(face = "bold"))
-
-a <- pp %>% plotly::ggplotly()
-
-htmlwidgets::saveWidget(a, 'Tets_all_vars.html')
+plots_by_var <- map(variable, ~make_map(ws_selected, .x, departamento, localidad = NA))
+plots_by_department <- map(departamento, ~make_map_by(ws_selected, variable, .x))
 
 
+walk2(plots_by_var, variable, 
+     ~ggsave(filename = paste0(paste0(path, "/plots_ideam/",
+                               .y, ".png")), .x, height = 11, width = 8, units = "in"))
+walk2(plots_by_department, departamento, 
+      ~ggsave(filename = paste0(paste0(path, "/plots_ideam/",
+                                       .y, ".png")), .x, height = 8, width = 11, units = "in"))
 
-
-
-## Search nearest point between two location
-coor <- Tolima %>% dplyr::select(lon, lat) # tibble(lat = c(8.839527778, 5.177083333) , lon = c(-75.80188889, -72.54738889))
-
-set1_sp <- SpatialPoints(coor)
-set2_sp <- SpatialPoints(san_juan)
-
-
-set2_sp$similar_set1 <- as.numeric(apply(gDistance(set1_sp, set2_sp, byid=TRUE), 1, which.min))
-
-
-
-
+plots_html <- map(plots_by_var, ggplotly)
+walk2(plots_html, paste0(path, "/plots_ideam/", variable, ".html"), 
+      ~saveWidget(.x, file.path(normalizePath(dirname(.y)), basename(.y))))
 
