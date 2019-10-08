@@ -25,7 +25,8 @@ load(file = "catalog.rds")
 dpto <- c("CESAR", "TOLIMA", "HUILA")#, "CORDOBA", "VALLE DEL CAUCA")
 
 cat <- c("CLIMATOLOGICA PRINCIPAL", "CLIMATOLOGICA ORDINARIA", 
-         "AGROMETEOROLOGICA", "SINOPTICA PRINCIPAL", "SINOPTICA SECUNDARIA", "METEOROLOGICA ESPECIAL", "PLUVIOMETRICA" )
+         "AGROMETEOROLOGICA", "SINOPTICA PRINCIPAL",
+         "SINOPTICA SECUNDARIA", "METEOROLOGICA ESPECIAL", "PLUVIOMETRICA" )
 
 status <- c("ACTIVA", "SUSPENDIDA", "FUERA DE SERVICIO")
 
@@ -153,18 +154,19 @@ ws_selected <- ideam_raw %>% bind_rows(.id = "var") %>%
 
 ##### MMMMMMAAAAAPPPAAAAAssss
 
-
-COL_shp <-  getData('GADM', country='COL', level=1) %>% st_as_sf(HM_shp) 
+COL_shp <-  getData('GADM', country='COL', level=1) %>% st_as_sf() 
 DPTO_shp <- COL_shp %>% filter(NAME_1 %in% c('Tolima', 'Cesar', 'Huila')) %>% 
   mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
          lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
 
-Municipios <- tibble(lon = c(-75.1148, -73.6116, -75.6362),
+Localidad <- tibble(lon = c(-75.1148, -73.6116, -75.6362),
                    lat = c(4.1941, 8.30686, 2.1954),
                    Municipio = c("San Juan", "Aguachica", "Garzon"))
 
-DEM_dpto <- DEM %>% crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
-  rasterToPoints() %>% as_tibble() %>% rename(Alt = COL_msk_alt)
+DEM_dpto <- getData('alt', country = 'COL') %>% 
+  crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
+  rasterToPoints() %>% as_tibble() %>% 
+  rename(Alt = COL_msk_alt)
 
 #unique(ws_selected$var)
 
@@ -181,7 +183,7 @@ pp <- ggplot()  +
   viridis::scale_colour_viridis(na.value="white",  direction = -1) + 
   geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
   geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
-  geom_point(data = point_site, aes(x = lon, y =  lat, shape = Municipio), color = "red") +
+  geom_point(data = Localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red") +
 #  facet_wrap(~Departamento) +
   theme_bw() +
   labs(title = paste0("Datos meteorologicos disponibles"), 
