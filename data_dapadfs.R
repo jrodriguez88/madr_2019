@@ -103,7 +103,7 @@ make_map <- function(ws_data, variable, departamento, localidad) {
   
   stopifnot(require(sf))
   # 106 mod...
-  COL_shp <-  getData('GADM', country='COL', level=1) %>% crop(extent(-81 , -66.7 , 0 , 12.5 )) %>% st_as_sf() 
+  COL_shp <-  getData('GADM', country='COL', level=1) %>% crop(extent(-81 , -66.7 , 2 , 12.5 )) %>% st_as_sf() 
   DPTO_shp <- COL_shp %>% filter(NAME_1 %in% departamento) %>% 
     mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
            lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
@@ -212,6 +212,136 @@ make_map_by <- function(ws_data, variable, departamento, localidad = NA) {
 
 
 
+# =--------------------------------------------------::::::::::::::::
+# Other functions (modifications). 
+# =--------------------------------------------------::::::::::::::::
+### Function to make map of weather stations by meteorological variable and department
+make_map_cat <- function(ws_data, variable, departamento, localidad) {
+  
+  ws_data <- ws_data %>% dplyr::filter(var == variable)
+  labels <- enframe(variable) %>% 
+    mutate(label = case_when(value == "prec" ~ "Precipitacion", 
+                             value == "rhum" ~ "Humedad_Relativa",
+                             value == "sbright" ~ "Brillo_Solar",
+                             value == "tmax" ~ "Temperatura_Maxima",
+                             value == "tmin" ~ "Temperatura_Minima",
+                             TRUE ~ value)) %>%
+    pull(label)
+  
+  stopifnot(require(sf))
+  # 106 mod...
+  COL_shp <-  getData('GADM', country='COL', level=1) %>% crop(extent(-81 , -66.7 , 2 , 12.5 )) %>% st_as_sf() 
+  DPTO_shp <- COL_shp %>% filter(NAME_1 %in% departamento) %>% 
+    mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+           lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+  
+  DEM_dpto <- getData('alt', country = 'COL') %>% 
+    crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
+    rasterToPoints() %>% as_tibble() %>% 
+    rename(Alt = COL_msk_alt)
+  
+  
+  pp <- ggplot()  +
+    geom_tile(data = DEM_dpto, aes(x, y, fill = Alt)) + 
+    scale_fill_distiller(palette = "Greys") +
+    geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
+    geom_point(data = ws_data, aes(x = lon, y = lat   ,
+                                   colour = NA_per_cat,
+                                   label = id,
+                                   label2 = Municipio,
+                                   label3 = Nombre,
+                                   label4 = Categoria)) +
+    # scale_colour_viridis_d(na.value="white",  direction = -1) + 
+    geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+    geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
+    #    geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red") +
+    #  facet_wrap(~Departamento) +
+    theme_bw() +
+    labs(title = paste0("Datos disponibles - ", labels), 
+         x = 'Longitud', 
+         y = 'Latitud', 
+         colour = NULL,
+         caption = "Fuente: IDEAM") + 
+    theme( #axis.text.x = element_text(angle = 90), legend.position="bottom", legend.title = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+      strip.text = element_text(face = "bold"))
+  
+  if(is.na(localidad)){
+    pp <- pp
+  } else {
+    pp <- pp + geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red")}
+  
+  return(pp)}
+
+
+make_map_by_cat <- function(ws_data, variable, departamento, localidad = NA) {
+  
+  labels <- enframe(variable) %>% 
+    mutate(label = case_when(value == "prec" ~ "Precipitacion", 
+                             value == "rhum" ~ "Humedad_Relativa",
+                             value == "sbright" ~ "Brillo_Solar",
+                             value == "tmax" ~ "Temperatura_Maxima",
+                             value == "tmin" ~ "Temperatura_Minima",
+                             TRUE ~ value)) %>%
+    pull(label)
+  
+  label_var <- as_labeller(c("prec" = "Precipitacion", "rhum" = "Humedad Relativa", "sbright" = "Brillo Solar",
+                             "tmax" = "Temperatura Maxima", "tmin" = "Temperatura Minima"))
+  
+  #  var <- unique(ws_data$var)
+  
+  stopifnot(require(sf))
+  
+  DPTO_shp <- getData('GADM', country='COL', level=1) %>% st_as_sf()  %>%
+    filter(NAME_1 %in% departamento) %>% 
+    mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+           lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+  
+  DEM_dpto <- getData('alt', country = 'COL') %>% 
+    crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
+    rasterToPoints() %>% as_tibble() %>% 
+    rename(Alt = COL_msk_alt)
+  
+  ws_data <- ws_data %>% filter(Departamento == toupper(stri_trans_general(departamento,"upper")))
+  
+  pp <- ggplot()  +
+    geom_tile(data = DEM_dpto, aes(x, y, fill = Alt)) + 
+    scale_fill_distiller(palette = "Greys") +
+    #    geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
+    geom_point(data = ws_data, aes(x = lon, y = lat   ,
+                                   colour = NA_per_cat,
+                                   label = id,
+                                   label2 = Municipio,
+                                   label3 = Nombre,
+                                   label4 = Categoria)) + 
+    facet_wrap(~var, labeller = label_var) + 
+    # viridis::scale_colour_viridis(na.value="white",  direction = -1) + 
+    #    geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+    geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
+    #    geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red") +
+    #  facet_wrap(~Departamento) +
+    theme_bw() +
+    labs(title = paste0("Datos disponibles - ", departamento), 
+         x = 'Longitud', y = 'Latitud', colour = NULL, caption = "Fuente: IDEAM") + 
+    theme(
+      #axis.text.x = element_text(angle = 90), legend.position="bottom", legend.title = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+      strip.text = element_text(face = "bold"))
+  
+  # if_else(is.na(localidad), pp, pp + geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red"))
+  if(is.na(localidad)){
+    pp <- pp
+  } else {
+    pp <- pp + geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red")}
+  
+  return(pp)}
+
+
+
+
+
 
 # =----------------------------------------------------------
 # Results Ganadaderia
@@ -272,6 +402,8 @@ ws_selected <- ideam_raw %>% bind_rows(.id = "var") %>%
   left_join(catalog %>% 
               dplyr::select(id, Nombre, Categoria, Departamento, Municipio,lat, lon))
 
+# =-------------------------------------------------------------------------------------
+# =-------------------------------------------------------------------------------------
 
 
 ##### MMMMMMAAAAAPPPAAAAAssss
@@ -288,7 +420,7 @@ variable <- unique(ws_selected$var)
 
 ##Output folder
 path <- getwd()
-dir.create(paste0(path, "/plots_ideam"))
+dir.create(paste0(path, "/plots_ideam_20_more"))
 
 tictoc::tic()
 plots_by_var <- map(variable, ~make_map(ws_selected, .x, departamento, localidad = NA))
@@ -301,7 +433,84 @@ tictoc::toc() # 3.14  sec.
 
 tictoc::tic()
 walk2(plots_by_var, variable, 
-     ~ggsave(filename = paste0(paste0(path, "/plots_ideam/",.y, ".png")), .x, height = 11, width = 8, units = "in"))
+     ~ggsave(filename = paste0(paste0(path, "/plots_ideam_20_more/",.y, ".png")), .x, height = 8, width = 11, units = "in"))
+tictoc::toc() # 73.25/60 = 1.22
+
+tictoc::tic()
+walk2(plots_by_department, departamento, 
+      ~ggsave(filename = paste0(paste0(path, "/plots_ideam_20_more/",
+                                       .y, ".png")), .x, height = 8, width = 11, units = "in"))
+tictoc::toc() # 
+
+tictoc::tic()
+plots_html <- map(plots_by_var, ggplotly)
+walk2(plots_html, paste0(path, "/plots_ideam_20_more/", variable, ".html"), 
+      ~saveWidget(.x, file.path(normalizePath(dirname(.y)), basename(.y))))
+tictoc::toc() # 4.487 min. 
+
+
+
+# =------------------------------------------------------------------------------------------------
+# =------------------------------------------------------------------------------------------------
+
+# Pruebas nuevas... 
+
+# unique(ws_selected$var)
+
+new_select <- ws_selected %>% 
+  mutate(NA_per_cat = case_when(
+    var == "prec"  & na_percent <= 20 ~ 'Cumple',
+    var == "prec"  & na_percent > 20 ~ 'No cumple',
+    var %in% c("tmax", "tmin", "sbright", "rhum")  & na_percent <= 30 ~ 'Cumple',
+    var %in% c("tmax", "tmin", "sbright", "rhum")  & na_percent > 30 ~ 'No cumple',
+    TRUE ~ var)) 
+
+
+new_select %>% filter(NA_per_cat == 'Cumple') %>% write_csv(path = 'Use_stations.csv')
+new_select %>% write_csv(path = 'stations_20_more.csv')
+
+data_to <- new_select %>% 
+  group_by(var, Departamento, NA_per_cat) %>% 
+  summarise(n_St_Na = n())
+
+# Prueba...
+bar_by_var <- data_to %>% 
+  ggplot(aes(x = Departamento, y = n_St_Na, fill = NA_per_cat)) + 
+  geom_bar(stat = 'identity', position = 'dodge') +
+  geom_text(aes(label=n_St_Na), position=position_dodge(width=0.9), vjust=-0.25) +
+  scale_fill_viridis_d()+
+  facet_grid(~ var, scales = 'free_x') + 
+  theme_bw() +
+  labs( x = 'Departamento', y = '# Estaciones', caption = "Fuente: IDEAM", fill = NULL) + 
+  theme( #axis.text.x = element_text(angle = 90), legend.position="bottom", legend.title = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+    strip.text = element_text(face = "bold"), 
+    axis.text.x = element_text(angle = 60, hjust = 1))
+
+ggsave(bar_by_var, filename = 'var.png', height = 5, width = 10, units = "in")
+
+# =--------------------------------------------------::::::::::::::::
+# Nuevos graph solo con los datos con el filtro. 
+# =--------------------------------------------------::::::::::::::::
+
+##Output folder
+dir.create(paste0(path, "/plots_ideam"))
+
+ns <- new_select %>% filter(NA_per_cat == 'Cumple')
+
+tictoc::tic()
+plots_by_var <- map(variable, ~make_map(ns, .x, departamento, localidad = NA))
+tictoc::toc() # 14.53 sec. 
+
+tictoc::tic()
+plots_by_department <- map(departamento, ~make_map_by(ns, variable, .x))
+tictoc::toc() # 3.14  sec. 
+
+
+tictoc::tic()
+walk2(plots_by_var, variable, 
+      ~ggsave(filename = paste0(paste0(path, "/plots_ideam/",.y, ".png")), .x, height = 8, width = 11, units = "in"))
 tictoc::toc() # 73.25/60 = 1.22
 
 tictoc::tic()
@@ -310,8 +519,139 @@ walk2(plots_by_department, departamento,
                                        .y, ".png")), .x, height = 8, width = 11, units = "in"))
 tictoc::toc() # 
 
+
+
+# =-----------------------
+# 
+
+tictoc::tic()
+plots_by_var <- map(variable, ~make_map_cat(new_select, .x, departamento, localidad = NA))
+tictoc::toc() # 14.53 sec. 
+
+tictoc::tic()
+walk2(plots_by_var, variable, 
+      ~ggsave(filename = paste0(paste0(path, "/plots_ideam/cat_",.y, ".png")), .x, height = 8, width = 11, units = "in"))
+tictoc::toc() # 73.25/60 = 1.22
+
+
+
+tictoc::tic()
+plots_by_department <- map(departamento, ~make_map_by_cat(new_select, variable, .x))
+tictoc::toc() # 3.14  sec. 
+
+
+tictoc::tic()
+walk2(plots_by_department, departamento, 
+      ~ggsave(filename = paste0(paste0(path, "/plots_ideam/cat_",
+                                       .y, ".png")), .x, height = 8, width = 11, units = "in"))
+tictoc::toc() # 
+
+
+
 tictoc::tic()
 plots_html <- map(plots_by_var, ggplotly)
 walk2(plots_html, paste0(path, "/plots_ideam/", variable, ".html"), 
       ~saveWidget(.x, file.path(normalizePath(dirname(.y)), basename(.y))))
-tictoc::toc() # 
+tictoc::toc() # 4.487 min. 
+
+
+# =------------------------------------------------------------------------------------------
+# 
+# =------------------------------------------------------------------------------------------
+cowsay::say(what = 'Other graphs', by = 'smallcat')
+
+# ns %>% names()
+# ns$id %>% unique()
+  
+all_var_stations <- ns %>% 
+  group_by(id) %>% 
+  summarise(freq = n()) %>% 
+  ungroup() %>% 
+  filter(freq == max(freq)) %>% 
+  pull(id)
+
+all_varS <- ns %>% filter(id %in% all_var_stations)
+
+
+COL_shp <-  getData('GADM', country='COL', level=1) %>% crop(extent(-81 , -66.7 , 2 , 12.5 )) %>% st_as_sf() 
+DPTO_shp <- COL_shp %>% filter(NAME_1 %in% departamento) %>% 
+  mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+         lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+
+DEM_dpto <- getData('alt', country = 'COL') %>% 
+  crop(DPTO_shp) %>% mask(DPTO_shp) %>% 
+  rasterToPoints() %>% as_tibble() %>% 
+  rename(Alt = COL_msk_alt)
+
+
+label_var <- as_labeller(c("prec" = "Precipitacion", "rhum" = "Humedad Relativa", "sbright" = "Brillo Solar",
+                           "tmax" = "Temperatura Maxima", "tmin" = "Temperatura Minima"))
+
+pp <- ggplot()  +
+  geom_tile(data = DEM_dpto, aes(x, y, fill = Alt)) + 
+  scale_fill_distiller(palette = "Greys") +
+  geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
+  geom_point(data = all_varS, aes(x = lon, y = lat   ,
+                                 colour = na_percent,
+                                 label = id,
+                                 label2 = Municipio,
+                                 label3 = Nombre,
+                                 label4 = Categoria)) +
+  viridis::scale_colour_viridis(na.value="white",  direction = -1) + 
+  geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+  geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
+  #    geom_point(data = localidad, aes(x = lon, y =  lat, shape = Municipio), color = "red") +
+  facet_wrap(~var, labeller = label_var) +
+  theme_bw() +
+  labs(title = glue::glue('Total: {length(all_var_stations)}'), x = 'Longitud', 
+       y = 'Latitud', 
+       colour = '% NA',
+       caption = "Fuente: IDEAM") + 
+  theme( #axis.text.x = element_text(angle = 90), legend.position="bottom", legend.title = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+    strip.text = element_text(face = "bold"))
+
+
+ggsave(pp, filename = 'plots_ideam/all_var.png', height = 8, width = 11, units = "in")
+
+
+# =--------------------------------------------------
+# Presencia de las 5 variables...
+
+freq <- all_varS %>%
+  filter(var == 'prec') %>%
+  group_by(Departamento) %>% 
+  summarise(Freq = n() %>% as.factor()) %>% 
+  rename(NAME_1 = 'Departamento') %>% 
+  # mutate( NAME_1 = tolower(stri_trans_general(NAME_1,"upper")))
+  mutate(NAME = toupper(substr(NAME_1, 1, 1)), test = tolower(substr(NAME_1, 2, nchar(NAME_1))), 
+         NAME_1 = glue::glue('{NAME}{test}')) %>% 
+  dplyr::select(-NAME, -test)
+
+
+test <- DPTO_shp %>% right_join(. , freq) 
+
+
+test_g <- ggplot()  +
+  geom_text(data = test, aes(label = glue::glue('{NAME_1}:{Freq}'), x = lon, y = lat), hjust= -1) +
+  geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+  geom_sf(data = test, aes(fill =  as.factor(Freq)), color = gray(.1), alpha = 0.5) +
+  geom_point(data = all_varS, aes(x = lon, y = lat   ,
+                                  colour = NA_per_cat,
+                                  label = id,
+                                  label2 = Municipio,
+                                  label3 = Nombre,
+                                  label4 = Categoria), colour = 'red') +
+  theme_bw() +  
+  labs(title = glue::glue('Total: {length(all_var_stations)}'), x = 'Longitud', 
+                     y = 'Latitud', 
+                     colour = NULL, 
+                     caption = "Fuente: IDEAM") + 
+  theme( #axis.text.x = element_text(angle = 90), legend.position="bottom", legend.title = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+    strip.text = element_text(face = "bold"), 
+    legend.position = 'none')
+
+ggsave(test_g, filename = 'plots_ideam/all_var.png', height = 8, width = 11, units = "in")
