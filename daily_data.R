@@ -195,34 +195,23 @@ ggsave(pp, filename = 'maize/plots_ideam_20_more/all_var.png', height = 8, width
 
 
 
+# =-------------------------------------------------------
+# Nearest station
+# =-------------------------------------------------------
 
-prueba <- all_varS %>% filter(Departamento == 'CESAR')
+# prueba <- all_varS %>% filter(Departamento == 'CESAR')
+# localidad 
+# stations <- prueba %>% dplyr::select(id, lon, lat, Municipio) %>% unique()
+# test1 <- st_point(c(-73.6, 8.31))
 
-
-
-localidad 
-
-stations <- prueba %>% 
-  dplyr::select(id, lon, lat, Municipio) %>% 
-  unique()
-
-test1 <- st_point(c(-73.6, 8.31))
-
-stations %>% 
-  mutate(sf_point = purrr::map2(.x = lon, .y = lat, .f = function(x,y){st_point(c(x,y))})) %>% 
-  mutate(distance = purrr::map(.x = sf_point, .f = function(x, point){st_distance(x, point) %>% .[,1]}, point = test1)) %>% 
-  unnest(distance)
+# stations %>% 
+#   mutate(sf_point = purrr::map2(.x = lon, .y = lat, .f = function(x,y){st_point(c(x,y))})) %>% 
+#   mutate(distance = purrr::map(.x = sf_point, .f = function(x, point){st_distance(x, point) %>% .[,1]}, point = test1)) %>% 
+#   unnest(distance)
 
 
-
-l_mod <- localidad %>%
-  rename('Departamento'  = 'Dep') %>% 
-  mutate(Departamento = toupper(stri_trans_general(Departamento,"upper"))) %>% 
-  nest(-Municipio, -Departamento) %>% 
-  rename('coord' = 'data')
-
-
-
+# =--------------------------------------------------
+# Function to calculate spatial distances at x point.
 sf_dist_mod <- function(data, point_st){
   
   point <- st_point(point_st %>% as.numeric(.))
@@ -234,15 +223,23 @@ sf_dist_mod <- function(data, point_st){
     arrange(dist)
   
   return(data_dist)}
+# =--------------------------------------------------
 
+# modification of the locality object.
+l_mod <- localidad %>%
+  rename('Departamento'  = 'Dep') %>% 
+  mutate(Departamento = toupper(stri_trans_general(Departamento,"upper"))) %>% 
+  nest(-Municipio, -Departamento) %>% 
+  rename('coord' = 'data')
 
-f <- all_varS %>% 
+# modification of the stations to turn them into an sf object.
+data_spatial <- all_varS %>% 
   nest(-Departamento) %>% inner_join(. , l_mod) %>% 
   mutate(data_mod = purrr::map(.x = data, .f = function(x){ x %>% dplyr::select(id, lon, lat, Municipio) %>% 
-      unique() %>%  mutate(sf_point = purrr::map2(.x = lon, .y = lat, .f = function(x,y){st_point(c(x,y))}))})) 
+      unique() %>% mutate(sf_point = purrr::map2(.x = lon, .y = lat, .f = function(x,y){st_point(c(x,y))}))})) 
 
-
-station_t <- f %>% 
+# Calculation of locality-stations distances.
+station_t <- data_spatial %>% 
   mutate(distance = purrr::map2(.x = data_mod, .y = coord, .f = function(x, y){sf_dist_mod(x, y)})) %>% 
   dplyr::select(Departamento,  Municipio, distance) %>% 
   rename(Obj_M = 'Municipio') %>% 
@@ -251,60 +248,59 @@ station_t <- f %>%
 
 
 
-#  Estaciones mas cercanas?????
+#  Graph nearest stations to each locality. 
 
-
-
-
-
-
-
-shp <-  getData('GADM', country='COL', level=2) %>% crop(extent(-81 , -66.7 , 0 , 12.5 )) %>% st_as_sf()
+shp <-  getData('GADM', country='COL', level=2) %>% crop(extent(-81 , -66.7 , 0 , 12 )) %>% st_as_sf()
 other_shp <- shp %>% filter(NAME_1 %in% departamento) %>%
   mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
          lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
 
-ggplot()  +
-  geom_tile(data = DEM_dpto, aes(x, y, fill = Alt), alpha = 0.7) +
-  scale_fill_distiller(palette = "Greys") +
+nearest <- ggplot()  +
+  geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+  geom_sf(data = DPTO_shp,  aes(fill = NAME_1), color = gray(.3), alpha = 0.5) +
+  geom_sf(data = other_shp,  fill = NA, color = gray(.1)) +
+  scale_fill_viridis_d() +
   geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
   geom_point(data = localidad, aes(lon, lat), colour = 'red')+
   geom_point(data = station_t, aes(lon, lat), colour = 'blue')+
-  geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
-  geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
-  geom_sf(data = other_shp,  fill = NA, color = gray(.1)) +
-  theme_bw()
+  theme_bw()+
+  theme(legend.position = 'none') +
+  labs( y = 'Latitud', x = 'Longitud', caption = "Fuente: IDEAM")
+
+ggsave(nearest, filename = 'maize/plots_ideam_20_more/nearest.png', height = 8, width = 11, units = "in")
 
 
 
-
-
-
-
-  all_p <- station_t %>% dplyr::select(Departamento, distance) %>% 
-    filter(Departamento == 'HUILA') %>% unnest()
+# =--------------------------------------------------
+# Function graph for each department near stations for each locality. 
+by_each_depar_graph <- function(data){
   
+  all_p <- data %>% dplyr::select(Departamento, distance) %>% unnest()
   
-  ggplot()  +
-    geom_point(data = filter(all_p, Departamento == 'HUILA'), aes(lon, lat), colour = 'orange')+
-    geom_point(data = filter(localidad, Dep == 'Huila'), aes(lon, lat), colour = 'red')+
-    geom_point(data = filter(station_t, Departamento == 'HUILA') , aes(lon, lat), colour = 'blue')+
-    # geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
-    geom_sf(data = filter(DPTO_shp, NAME_1 == 'Huila'), fill = NA, color = gray(.1)) +
-    geom_sf(data = filter(other_shp, NAME_1 == 'Huila'),  fill = NA, color = gray(.1)) +
-  theme_bw()
+  dep_st <- ggplot()  +
+    geom_point(data = all_p, aes(lon, lat, shape = "a"), colour = 'orange')+
+    geom_point(data = data %>% select(data) %>% unnest(data), aes(lon, lat, shape = "b"), colour = 'red')+
+    geom_point(data = data , aes(lon, lat, shape = "c"), colour = 'blue')+
+    scale_shape_manual(name   = "Estado",
+                       values = c(a = 7, b = 8, c = 9),
+                       labels = c("Cercana","Objetivo","Selecionada"), 
+                       guide  = ggplot2::guide_legend(override.aes = list(colour = c('orange', 'red', 'blue'))))+ 
+    geom_sf(data = filter(DPTO_shp, NAME_1 == pull(data, Dep)), fill = NA, color = gray(.3)) +
+    geom_sf(data = filter(other_shp, NAME_1 == pull(data, Dep)),  fill = NA, color = gray(.1)) +
+    labs( title = pull(data, Dep), y = 'Latitud', x = 'Longitud', caption = "Fuente: IDEAM") + 
+    theme_bw()
   
-  
-  
-  
-  
+  ggsave(dep_st, filename = glue::glue('maize/plots_ideam_20_more/{pull(data, Dep)}.png'), 
+         height = 8, width = 11, units = "in")
+}
+# =-------------------------------------------------
 
-# %>% mutate(distance = purrr::map(.x = data_mod, y = point_st, .f = 
-             # function(x, y){st_distance(x %>% select(sf_point), y) %>% .[,1]}))
-
-
-
-
+station_t %>%
+  mutate(Dep = c('Huila', 'Tolima', 'Cesar'), 
+         id = 1:nrow(.)) %>%
+  inner_join(localidad %>% nest(-Dep)) %>% 
+  nest(-id) %>% 
+  mutate(maps = purrr::map(.x = data, .f = by_each_depar_graph))
 
 
 # tictoc::tic()
@@ -312,6 +308,59 @@ ggplot()  +
 # walk2(plots_html, paste0(path, "/maize/plots_ideam_20_more/", variable, ".html"), 
 #       ~saveWidget(.x, file.path(normalizePath(dirname(.y)), basename(.y))))
 # tictoc::toc() # 4.487 min. 
+
+
+
+# =--------------------------------------------------
+# Extraction final stations
+# =--------------------------------------------------
+
+station_t %>% 
+  dplyr::select(-distance) %>% 
+  write_csv(path = 'maize/final_st.csv')
+
+id_selected <- dplyr::pull(station_t, id)
+
+
+ideam_raw %>%  
+  bind_rows(.id = "var") %>% 
+  left_join(catalog %>%  dplyr::select(id, Nombre, Categoria, Departamento, Municipio,lat, lon)) 
+
+
+
+data_raw <- ideam_raw %>% 
+  bind_rows(.id = "var") %>%
+  # dplyr::select(-data) %>% 
+  left_join(catalog %>%  dplyr::select(id, Nombre, Categoria, Departamento, Municipio,lat, lon))  %>% 
+  filter(id %in% id_selected & var %in% c('prec', 'tmax', 'tmin', 'sbright')) %>% 
+  dplyr::select(-idate, -fdate, -Nombre, -Categoria)
+
+
+
+
+
+# probando <- 
+
+
+data_raw %>% 
+  filter(Departamento == 'CESAR') %>% 
+  dplyr::select(-years, -na_percent) %>% 
+  filter(row_number() == 4) %>% unnest()
+  # unnest(data) %>% 
+  # mutate(prec = ifelse(prec >= 0 & prec <= 300, prec, NA_real_), ) %>% 
+  # slice(n())
+
+
+
+
+
+
+
+id_selected
+
+
+
+
 
 
 
