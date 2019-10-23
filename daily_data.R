@@ -23,6 +23,7 @@ load(file = "catalog.rds")
 # = -----
 # Change this when we have monthly data...
 source('data_dapadfs.R') # Por ahora no se debe correr directamente...
+source('QC_daily.R')
 
 # =------------------------------------------------------------------------------------
 # =------------------------------------------------------------------------------------
@@ -199,17 +200,6 @@ ggsave(pp, filename = 'maize/plots_ideam_20_more/all_var.png', height = 8, width
 # Nearest station
 # =-------------------------------------------------------
 
-# prueba <- all_varS %>% filter(Departamento == 'CESAR')
-# localidad 
-# stations <- prueba %>% dplyr::select(id, lon, lat, Municipio) %>% unique()
-# test1 <- st_point(c(-73.6, 8.31))
-
-# stations %>% 
-#   mutate(sf_point = purrr::map2(.x = lon, .y = lat, .f = function(x,y){st_point(c(x,y))})) %>% 
-#   mutate(distance = purrr::map(.x = sf_point, .f = function(x, point){st_distance(x, point) %>% .[,1]}, point = test1)) %>% 
-#   unnest(distance)
-
-
 # =--------------------------------------------------
 # Function to calculate spatial distances at x point.
 sf_dist_mod <- function(data, point_st){
@@ -322,45 +312,63 @@ station_t %>%
 id_selected <- dplyr::pull(station_t, id)
 
 
-ideam_raw %>%  
+
+
+# =------------------------------------------------------------------------
+# tic("making quality control")
+# IDEAM_qc <-  make_qc(IDEAM, date_filter = c(lubridate::dmy("01-01-1981"),
+#                                             lubridate::dmy("31-12-2010")))  
+# toc()
+
+#  Lo que se supone que Jeison dijo, es que para cada estacion se tiene 
+# id, lat, lon, y un nest [data]
+# Ese objeto [data] = date, prec, tmin, tmax, sbrigh (esa ultima variable la debo de agregar).
+# sbrigh (esa ultima variable la debo de agregar): aun no tiene el control de calidad establecido. 
+
+ 
+# Join all variables in one tibble by id and date.
+full_all_var <- function(data){
+  
+  date_ini <- lubridate::as_date('1980-01-01')
+  date_final <- Sys.Date()
+  
+  data_mod <- data %>% 
+    group_split(var) %>% 
+    purrr::map(unnest) %>% 
+    reduce(full_join, by = "Date") %>% 
+    filter(Date >= date_ini & Date <= date_final) %>% 
+    dplyr::select(-contains('var')) 
+  
+  return(data_mod)}
+
+
+
+
+fila_1 <- ideam_raw %>%
   bind_rows(.id = "var") %>% 
-  left_join(catalog %>%  dplyr::select(id, Nombre, Categoria, Departamento, Municipio,lat, lon)) 
+  ungroup() %>% 
+  dplyr::select(-years, -na_percent, -idate, -fdate) %>% 
+  filter(var != 'rhum' ) %>% 
+  filter(id %in% id_selected) %>% 
+  nest(-id) %>% 
+  mutate(rows = purrr::map(.x = data, .f = nrow)) %>% 
+  unnest(rows) %>% 
+  mutate(data_join = purrr::map(.x = data, .f = full_all_var))
 
 
 
-data_raw <- ideam_raw %>% 
-  bind_rows(.id = "var") %>%
-  # dplyr::select(-data) %>% 
-  left_join(catalog %>%  dplyr::select(id, Nombre, Categoria, Departamento, Municipio,lat, lon))  %>% 
-  filter(id %in% id_selected & var %in% c('prec', 'tmax', 'tmin', 'sbright')) %>% 
-  dplyr::select(-idate, -fdate, -Nombre, -Categoria)
+prueba <- dplyr::select(fila_1, -data) %>% 
+  rename(data = 'data_join') %>% 
+  make_qc(.)
 
+# =--------------------------------------
+# Qc_sbright
+# =--------------------------------------
 
+# Preparando los datos para que pasen al cod de jeffer. 
 
-
-
-# probando <- 
-
-
-data_raw %>% 
-  filter(Departamento == 'CESAR') %>% 
-  dplyr::select(-years, -na_percent) %>% 
-  filter(row_number() == 4) %>% unnest()
-  # unnest(data) %>% 
-  # mutate(prec = ifelse(prec >= 0 & prec <= 300, prec, NA_real_), ) %>% 
-  # slice(n())
-
-
-
-
-
-
-
-id_selected
-
-
-
-
-
+datos <- inner_join(prueba, station_t) %>% 
+  inner_join(. , catalog %>% filter(id %in% id_selected) %>% dplyr::select(id, Altitud)) %>% 
+  rename(alt = 'Altitud')
 
 
