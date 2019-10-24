@@ -131,9 +131,11 @@ walk2(plots_by_department, departamento,
 tictoc::toc() #
 
 
+# =----------------------------------------
+# =----- ... Graph cumplimiento. 
+# =----------------------------------------
 
-# =----- ...
-
+# Creacion de la variable (tiene menos de cierto porcentaje de NA).
 new_select <- ws_selected %>%
   mutate(NA_per_cat = case_when(
     var == "prec"  & na_percent <= 20 ~ 'Cumple',
@@ -166,6 +168,7 @@ DEM_dpto <- getData('alt', country = 'COL') %>%
 label_var <- as_labeller(c("prec" = "Precipitacion", "sbright" = "Brillo Solar",
                            "tmax" = "Temperatura Maxima", "tmin" = "Temperatura Minima"))
 
+# Grafico con el total de estaciones que poseen todas las variables (prec, tmax, tmin).
 pp <- ggplot()  +
   geom_tile(data = DEM_dpto, aes(x, y, fill = Alt)) +
   scale_fill_distiller(palette = "Greys") +
@@ -197,7 +200,7 @@ ggsave(pp, filename = 'maize/plots_ideam_20_more/all_var.png', height = 8, width
 
 
 # =-------------------------------------------------------
-# Nearest station
+# Nearest station --- Encontrar las estaciones cercanas.
 # =-------------------------------------------------------
 
 # =--------------------------------------------------
@@ -237,8 +240,9 @@ station_t <- data_spatial %>%
   unnest(min)
 
 
-
+# =-------------------------------------------
 #  Graph nearest stations to each locality. 
+# =-------------------------------------------
 
 shp <-  getData('GADM', country='COL', level=2) %>% crop(extent(-81 , -66.7 , 0 , 12 )) %>% st_as_sf()
 other_shp <- shp %>% filter(NAME_1 %in% departamento) %>%
@@ -311,21 +315,10 @@ station_t %>%
 
 id_selected <- dplyr::pull(station_t, id)
 
-
-
-
 # =------------------------------------------------------------------------
 # tic("making quality control")
-# IDEAM_qc <-  make_qc(IDEAM, date_filter = c(lubridate::dmy("01-01-1981"),
-#                                             lubridate::dmy("31-12-2010")))  
-# toc()
+# Basado en el qc de Jeison. 
 
-#  Lo que se supone que Jeison dijo, es que para cada estacion se tiene 
-# id, lat, lon, y un nest [data]
-# Ese objeto [data] = date, prec, tmin, tmax, sbrigh (esa ultima variable la debo de agregar).
-# sbrigh (esa ultima variable la debo de agregar): aun no tiene el control de calidad establecido. 
-
- 
 # Join all variables in one tibble by id and date.
 full_all_var <- function(data){
   
@@ -341,9 +334,9 @@ full_all_var <- function(data){
   
   return(data_mod)}
 
-
-
-
+# =------------------------------------------------------------------------
+# Aqui se contruye las bases de datos con todas las variables disponibles. 
+# =------------------------------------------------------------------------
 fila_1 <- ideam_raw %>%
   bind_rows(.id = "var") %>% 
   ungroup() %>% 
@@ -356,19 +349,82 @@ fila_1 <- ideam_raw %>%
   mutate(data_join = purrr::map(.x = data, .f = full_all_var))
 
 
-
+# =---- Aqui se hace el QC...
 prueba <- dplyr::select(fila_1, -data) %>% 
   rename(data = 'data_join') %>% 
   make_qc(.)
 
+
+
+
+
+
 # =--------------------------------------
 # Qc_sbright
 # =--------------------------------------
-
+cowsay::say(  what =  'Warning!!!! \nPara correr esta parte primero es necesario hacer el llenado de las temp', by = 'smallcat')
 # Preparando los datos para que pasen al cod de jeffer. 
 
+
+cat_mod <- catalog %>% filter(id %in% id_selected) %>% dplyr::select(id, Nombre, Altitud)
+
+
 datos <- inner_join(prueba, station_t) %>% 
-  inner_join(. , catalog %>% filter(id %in% id_selected) %>% dplyr::select(id, Altitud)) %>% 
+  inner_join(. , cat_mod) %>% 
   rename(alt = 'Altitud')
 
+
+datos %>% 
+  dplyr::select(-data, -qc_climate, -distance) %>% 
+  mutate(Nombre = str_replace_all(Nombre, ' ', '_')) %>% 
+  write_csv(path = 'maize/final_st.csv')
+
+
+dir.create(path = 'maize/original_data')
+dir.create(path = 'maize/qc_data')
+
+datos %>% 
+  dplyr::select(Nombre, Municipio, Obj_M, data, qc_climate) %>% 
+  mutate(Nombre = str_replace_all(Nombre, ' ', '_')) %>% 
+  unnest(Nombre) %>%
+  mutate(name = glue::glue('{Obj_M}_{Municipio}') %>% str_replace(' ', '_') %>% stri_trans_general( id = "Latin-ASCII") ) %>% 
+  dplyr::select(-Municipio, -Obj_M) %>% 
+  mutate(save_data = purrr::map2(.x = data, .y = name, .f = function(x, y){
+    write_csv(x = x, path = glue::glue('maize/original_data/{y}.csv'))}), 
+    save_qc = purrr::map2(.x =  qc_climate , .y = name, .f = function(x, y){
+      write_csv(x = x, path = glue::glue('maize/qc_data/qc_{y}.csv'))}))
+
+
+
+# Correr radiacion... y guardar los archivos brutos y qc (por si acaso)... 
+# Luego guardar los de radiacion...
+
+
+
+
+srad_if <- function(exist, data, lat, lon, alt){
+  
+  if(exist == TRUE){
+    data_mod <- data %>% mutate(srad = get_srad_ideam(., lat, lon, alt)) 
+    }else{  data_mod <- data %>%
+        mutate(srad = get_srad_ideam(., lat, lon, alt, kRs = 0.165))}
+  
+return(data_mod)}
+
+
+tratando <- datos %>% 
+  dplyr::select(-distance, -dist, -data, -Obj_M) %>%
+  mutate(Nombre = str_replace_all(Nombre, ' ', '_')) %>% 
+  unnest(Nombre) %>% 
+  mutate(cond = purrr::map(.x = qc_climate, .f = function(x){isTRUE(sum(names(x) == 'sbright') == 1)})) %>% 
+  unnest(cond) %>% 
+  mutate(data_srad = pmap(.l = list(cond, qc_climate, lat, lon, alt), .f = srad_if))
+
+
+
+
+tratando %>% 
+  dplyr::select(id, data_srad) %>% 
+  filter(row_number() == 3) %>% 
+  unnest()
 
