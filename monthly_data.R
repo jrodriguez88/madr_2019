@@ -270,10 +270,10 @@ cowsay::say(what = 'Other graphs', by = 'smallcat')
 # all_varS <- ns %>% filter(id %in% all_var_stations)
 # 
 # 
-# COL_shp <-  getData('GADM', country='COL', level=1) %>% crop(extent(-81 , -66.7 , 2 , 12.5 )) %>% st_as_sf()
-# DPTO_shp <- COL_shp %>% filter(NAME_1 %in% departamento) %>%
-#   mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
-#          lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+COL_shp <-  getData('GADM', country='COL', level=1) %>% crop(extent(-81 , -66.7 , 2 , 12.5 )) %>% st_as_sf()
+DPTO_shp <- COL_shp %>% filter(NAME_1 %in% departamento) %>%
+  mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+         lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
 # 
 # DEM_dpto <- getData('alt', country = 'COL') %>%
 #   crop(DPTO_shp) %>% mask(DPTO_shp) %>%
@@ -382,6 +382,140 @@ fila_1 <- ideam_raw %>%
 tictoc::tic()
 prueba <- fila_1 %>% make_qc(.)
 tictoc::toc() # 12.44 (para 455 estaciones aprox).
+
+
+
+
+
+
+# prueba_1 <- prueba %>% 
+#   filter(row_number() == 1) %>% 
+#   dplyr::select(data) %>% 
+#   unnest()
+
+
+
+prueba_1 %>% slice(n()) %>% pull(Date)
+
+
+
+j <- prueba %>% 
+  mutate(NA_data = purrr::map(.x = data, .f = function(x){ dplyr::select(x, prec) %>% naniar::miss_var_summary() }), 
+         final_Date = purrr::map(.x = data, .f = function(x){x %>% slice(n()) %>% pull(Date)})) %>% 
+  unnest(NA_data)  %>% 
+  dplyr::select(-variable) %>% 
+  unnest(final_Date) %>% 
+  filter(pct_miss <= 20)  %>% 
+  mutate(year = lubridate::year(final_Date), month =  lubridate::month(final_Date)) 
+
+
+
+
+
+
+j %>% count( year)
+
+# Segundo filtro...
+jq <- j %>% 
+  filter(year >= 2014) %>% 
+  dplyr::select(-data, -n_miss)
+
+# Hacer llenado hasta 2016...
+count(jq, year)
+
+# Aqui debemos poner tambien las coordenadas... :S ... 
+
+
+jq <- data_filter%>% 
+  filter(id %in% jq$id) %>% 
+  dplyr::select(id, Nombre, Departamento, Municipio, lon, lat, Altitud) %>% 
+  nest(-id) %>% 
+  rename(local_data = 'data') %>% 
+  inner_join(jq)
+
+
+
+
+# =-------------------------------------
+library(raster)
+library(ncdf4)
+
+
+ncdf4::nc_open('ganaderia/chirps-v2.0.monthly.nc')
+probando_layers <- stack('ganaderia/chirps-v2.0.monthly.nc') %>% raster::crop(. , DPTO_shp) # %>% raster::mask(. , DPTO_shp)
+
+layers_filter <- probando_layers[[1:432]]
+names(layers_filter) # (2017-1981)*12 = 432
+
+
+
+
+
+
+
+ar <- jq %>% 
+  filter(row_number() == 2) %>% 
+  dplyr::select(local_data) %>% 
+  unnest()
+
+
+
+spatial_ext <- function(coord_d, spatial_data){
+  
+  data_ext <- spatial_data %>% 
+    raster::extract(., data.frame(x= pull(coord_d, lon),y= pull(coord_d, lat)))  %>% 
+    t() %>% 
+    as_tibble() %>% 
+    set_names('prec_chirps') %>%
+    mutate(Date = seq(as.Date("1981-01-01"), as.Date("2016-12-01"), "months")) %>% 
+    dplyr::select(Date, prec_chirps)
+  
+return(data_ext)}
+
+
+# spatial_ext(ar, layers_filter)
+
+tictoc::tic()
+plan(multiprocess)
+options(future.globals.maxSize= 891289600)
+jq <- jq %>%
+  mutate(Chirps_data = furrr::future_map(.x  = local_data, .f = spatial_ext, spatial_data = layers_filter))
+gc()
+gc(reset = TRUE)
+tictoc::toc() # 532.6 = 8.87min
+
+
+
+
+
+
+
+
+
+
+# Llenado de datos y acumulacion 
+
+prueba_full <- jq %>% 
+  filter(row_number() == 1) %>% dplyr::select(qc_climate) %>% 
+  unnest
+
+
+ajam_full <- prueba_full %>% 
+  mutate(year = lubridate::year(Date), 
+         month = lubridate::month(Date))
+
+
+full_NA <- ajam_full %>% 
+  mutate(prueba = ifelse( is.na(prec_qc) == TRUE, 1, 0)) %>% 
+  group_by(year, month) %>% 
+  summarise( prec = sum(prec_qc, na.rm = TRUE),na = sum(prueba)/n() * 100) %>%
+  ungroup() %>%
+  mutate(prec = ifelse(na > 10, NA_real_, prec)) 
+
+
+
+  
+
 
 
 
