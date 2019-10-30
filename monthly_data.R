@@ -448,15 +448,7 @@ layers_filter <- probando_layers[[1:432]]
 names(layers_filter) # (2017-1981)*12 = 432
 
 
-
-
-
-
-
-ar <- jq %>% 
-  filter(row_number() == 2) %>% 
-  dplyr::select(local_data) %>% 
-  unnest()
+# ar <- jq %>% filter(row_number() == 2) %>% dplyr::select(local_data) %>% unnest()
 
 
 
@@ -487,41 +479,199 @@ tictoc::toc() # 532.6 = 8.87min
 
 
 
+acum_filling_data <- function(qc_data, salellite_data){
+  # Llenado de datos y acumulacion 
+  # qc_data <- jq %>% filter(row_number() == 1) %>% dplyr::select(qc_climate) %>% unnest
+  # salellite_data <- jq %>% filter(row_number() == 1)  %>% dplyr::select(Chirps_data) %>% unnest
 
-
-
-
-
-
-# Llenado de datos y acumulacion 
-
-prueba_full <- jq %>% 
-  filter(row_number() == 1) %>% dplyr::select(qc_climate) %>% 
-  unnest
-
-
-ajam_full <- prueba_full %>% 
-  mutate(year = lubridate::year(Date), 
-         month = lubridate::month(Date))
-
-
-full_NA <- ajam_full %>% 
-  mutate(prueba = ifelse( is.na(prec_qc) == TRUE, 1, 0)) %>% 
-  group_by(year, month) %>% 
-  summarise( prec = sum(prec_qc, na.rm = TRUE),na = sum(prueba)/n() * 100) %>%
-  ungroup() %>%
-  mutate(prec = ifelse(na > 10, NA_real_, prec)) 
-
-
-
+  full_NA <- qc_data %>%  
+    mutate(year = lubridate::year(Date), month = lubridate::month(Date)) %>% 
+    mutate(prueba = ifelse( is.na(prec_qc) == TRUE, 1, 0)) %>% 
+    group_by(year, month) %>% 
+    summarise( prec = sum(prec_qc, na.rm = TRUE),na = sum(prueba)/n() * 100) %>%
+    ungroup() %>%
+    mutate(prec = ifelse(na > 10, NA_real_, prec)) %>% 
+    dplyr::select(-na)
   
+  All <- salellite_data  %>%  
+    mutate(year = lubridate::year(Date), month = lubridate::month(Date)) %>% 
+    full_join(filter(full_NA, year > 1980) ) 
+    
+  coef <- lm( prec ~ prec_chirps, data = All)$coefficients %>% as.numeric()
+  
+  All <- All %>%
+    mutate(prec = ifelse(is.na(prec) == TRUE, coef[1] + coef[2] * prec_chirps, prec)) %>% 
+    dplyr::select(Date, prec)
+    
+return(All)}
+
+tictoc::tic()
+change_Data <- jq %>% 
+  mutate(data_complete = purrr::map2(.x = qc_climate, .y = Chirps_data, .f = acum_filling_data))
+tictoc::toc() # 46.86 sec.
+
+
+
+# Ya no quedan NA...
+#  Aqui ya comenzamos la creacion de los archivos para cpt. 
+fuente <- change_Data %>% 
+  dplyr::select(id, local_data,  data_complete) %>% 
+  unnest(local_data) 
+
+
+
+# sitios <- 
+
+Mun_shp <-getData('GADM', country='COL', level=2) %>% crop(extent(-81 , -66.7 , 2 , 12.5 )) %>% st_as_sf()
+# DPTO_shp <- COL_shp %>% filter(NAME_1 %in% departamento) %>%
+#   mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+#          lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+
+
+# municipio <- Mun_shp %>% filter(NAME_1 %in% departamento) %>% dplyr::select(NAME_1, NAME_2)
+Mun__filter <- Mun_shp %>%
+  filter(NAME_2 %in% c('Caucasia' , 'Don Matías' , 'San Pedro de los Milagros', 'Santa Rosa de Osos', 
+                       'Lorica' ,  'Planeta Rica', 'Chiquinquirá' , 'Duitama', 'Zipaquirá') | 
+           NAME_1 == 'Cesar') %>% 
+    mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+           lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+
+
+
+
+# Antioquia - Caucasia , Don Matías , San Pedro de los Milagros, Santa Rosa de Osos 
+# Córdoba - Lorica ,  Planeta Rica 
+# Boyacá - Chiquinquirá , Duitama
+# Cundinamarca - Zipaquirá
+# Cesar - Todas...
+
+pp <- ggplot()  +
+  geom_sf(data = Mun__filter, aes(fill = NAME_1), color = gray(.5)) + 
+  geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
+  geom_point(data = fuente, aes(x = lon, y = lat   , 
+                                 label = id,
+                                 label2 = Municipio,
+                                 label3 = Nombre)) +
+  geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+  geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
+  theme_bw() +
+  labs(title = glue::glue('Total: {nrow(fuente)}'), x = 'Longitud',
+       y = 'Latitud',
+       colour = '% NA',
+       caption = "Fuente: IDEAM") +
+  theme( legend.position = 'none',
+    panel.grid.minor = element_blank(),
+    strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+    strip.text = element_text(face = "bold"))
+
+ggsave(pp, filename = 'ganaderia/mun.png', height = 8, width = 11, units = "in")
+
+
+# Esta function debe desarrollarse para buscar las estaciones 
+# # Antioquia - Caucasia , Don Matías , San Pedro de los Milagros, Santa Rosa de Osos 
+# fuente %>% filter(Departamento == 'ANTIOQUIA' ) %>% pull(Municipio)
+# 
+# # CAUCASIA, 'SANTA ROSA DE OSOS'
+# 
+# 
+# a <- Mun_shp %>%
+#   filter(NAME_2 %in% c('Caucasia')) %>% 
+#   mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+#          lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+# 
+# point<- st_centroid(a) %>% dplyr::select(lon, lat) 
+# 
+# point1 <- st_point(x = c(-76.1,5.88))
+# point <- st_point(x = c(point$lon, point$lat))
+# 
+# st_distance(point, point1) %>% as.numeric()
+# 
+# 
+# sf_dist_mod <- function(data, point_st){
+#   
+#   point <- st_point(point_st %>% as.numeric(.))
+#   
+#   data_dist <- data %>% 
+#     mutate(dist = purrr::map(.x = sf_point, .f = function(x, point){st_distance(x, point) %>% .[,1]}, point = point)) %>% 
+#     unnest(dist) %>% 
+#     dplyr::select(-sf_point) %>% 
+#     arrange(dist)
+#   
+#   return(data_dist)}
 
 
 
 
 
 
+data_for <- fuente %>% filter(row_number() == 1) %>% dplyr::select(data_complete) %>% unnest()
+name <- fuente %>% filter(row_number() == 1) %>% pull(id) 
 
 
+
+
+two_place <- fuente %>% 
+  filter(Departamento %in% c('ANTIOQUIA', 'CORDOBA') ) %>% 
+  dplyr::select(id, data_complete) %>% 
+  unnest(data_complete) %>% 
+  tidyr::pivot_wider(names_from = id, values_from = prec)
+
+fuente %>% 
+  filter(Departamento %in% c('ANTIOQUIA', 'CORDOBA') ) %>% 
+  dplyr::select(lon, lat)
+
+
+
+
+
+
+#### Save CPT files by stations. 
+
+# This are tje functions to make the final file. 
+# CPT_file_s <- function(data, var){
+#   
+#   # data <-  MSD_SO
+#   # var <- 'start_date'
+#   
+#   CPT_data <- data %>%
+#     # dplyr::select(-type) %>%
+#     # unnest %>%
+#     rename(id = 'station_N') %>%
+#     dplyr::select(year, id, !!var) %>%
+#     mutate_if(is.numeric, list(~round(., 1))) %>%
+#     replace(is.na(.), -999) %>% 
+#     spread(key = id, value = !!var) 
+#   
+#   Lat_Long  <- data %>%
+#     # dplyr::select(-id, -data) %>%
+#     # unnest %>%
+#     rename(x = Lon, y = Lat) %>% 
+#     dplyr::select(x, y) %>%
+#     unique %>%
+#     t()
+#   
+#   colnames(Lat_Long) <- paste0(1:10)
+#   rownames(Lat_Long) <- NULL
+#   
+#   Lat_Long <- add_column(as_tibble(Lat_Long), year = c('cpt:X', 'cpt:Y'), .before = 1)
+#   
+#   names(Lat_Long) <- c('', paste0('V',1:10))
+#   names(CPT_data) <- c('', paste0('V',1:10))
+#   
+#   # =-=-=-=-=-=-=-=-=-=-=-=
+#   CPT_data <- CPT_data %>%
+#     mutate_if(is.factor, as.character) %>%
+#     mutate_if(is.character, as.numeric)  %>%
+#     rbind(Lat_Long, .)
+#   
+#   file <- paste0('D:/OneDrive - CGIAR/Desktop/USAID-Regional/USAID-REGIONAL/MSD_Index/to_proof_in_CPT/stations/', var, '.txt')
+#   
+#   sink(file = file)
+#   cat('xmlns:cpt=http://iri.columbia.edu/CPT/v10/', sep = '\n')
+#   cat('cpt:nfield=1', sep = '\n')
+#   cat(glue("cpt:field=days, cpt:nrow=36, cpt:ncol=10, cpt:col=station, cpt:row=T, cpt:units=julian;cpt:missing=-999"), sep = '\n')
+#   cat(write.table(CPT_data, sep = '\t', col.names = TRUE, row.names = FALSE, na = "", quote = FALSE))
+#   sink()
+# }
 
 
