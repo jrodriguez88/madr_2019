@@ -76,7 +76,7 @@ path <- "//dapadfs/data_cluster_4/observed/weather_station/col-ideam/daily-raw/U
 
 
 # Set variables to join
-var_selec <- 'PTPG_TT_D'
+var_selec <- 'PTPM_CON'
 
 # Set IDEAM id station 
 ideam_id <- data_filter$id
@@ -95,20 +95,17 @@ read_new_format <- function(x){
   return(x)}
 
 # =---------------------------------------------------
-wdata_tb <- tibble(id = list.files(path, pattern = var_selec) %>% str_remove('PTPG_TT_D@') %>% str_remove('.data'),
+tictoc::tic()
+plan(multiprocess)
+options(future.globals.maxSize= 891289600)
+
+wdata_tb <- tibble(id = list.files(path, pattern = var_selec) %>% str_remove('PTPM_CON@') %>% str_remove('.data'),
                    var = 'prec', 
   path = list.files(path, pattern = var_selec, full.names = 'TRUE') )%>%
-  mutate(data = purrr::map(.x = path, .f = read_new_format))
-
-
-
-
-# mutate(idate = map(data, ~ min(.x$Date)) %>% do.call("c", .),
-#        fdate = map(data, ~ max(.x$Date)) %>% do.call("c", .),
-#        years = time_length(fdate-idate, "years"),
-#        na_percent = map(data, ~ pct_miss(.x %>% dplyr::select(-Date))) %>% flatten_dbl()) %>%
-#   filter(years > 20)
-
+  mutate(data = furrr::future_map(.x = path, .f = read_new_format))
+gc()
+gc(reset = T)
+tictoc::toc() # 1 min 
 
 
 ideam_raw <-  wdata_tb %>%
@@ -142,19 +139,56 @@ ideam_raw <-  wdata_tb %>%
 
 
 
-# catalog <- 
-data_filter %>%
+catalog <- data_filter %>%
   dplyr::select(id, nombre, CATEGORIA, DEPARTAMENTO, MUNICIPIO, longitud, latitud, altitud) %>% 
-  setNames(c('id', 'Nombre', 'Categoria', 'Departamento', 'Municipio','lat', 'lon', 'altitud') ) %>% 
-  filter(id %in% ideam_raw$id)
+  setNames(c('id', 'Nombre', 'Categoria', 'Departamento', 'Municipio','lat', 'lon', 'altitud') )  %>% 
+  filter(id %in% ideam_id)
 
 
 
-# ws_selected <- 
-ideam_raw %>% 
+ws_selected <- ideam_raw %>% 
   # dplyr::select(-data) %>%
-  left_join(catalog %>%
+  inner_join(catalog %>%
               dplyr::select(id, Nombre, Categoria, Departamento, Municipio,lat, lon))
+
+
+
+# =-------------------------------------------------------------------------------------
+# =-------------------------------------------------------------------------------------
+
+new_select <- ws_selected %>%
+  mutate(NA_per_cat = case_when(
+    var == "prec"  & na_percent <= 20 ~ 'Cumple',
+    var == "prec"  & na_percent > 20 ~ 'No cumple',
+    TRUE ~ var))
+
+
+new_select %>% filter(NA_per_cat == 'Cumple') %>% write_csv(path = 'ganaderia/new_Use_stations.csv')
+new_select %>% write_csv(path = 'ganaderia/new_stations_20_more.csv')
+
+data_to <- new_select %>%
+  group_by(var, Departamento, NA_per_cat) %>%
+  summarise(n_St_Na = n())
+
+# Prueba... Si tuviera más variables, saldrian varios paneles... (pero en este caso solo prec). 
+bar_by_var <- data_to %>%
+  ggplot(aes(x = Departamento, y = n_St_Na, fill = NA_per_cat)) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  geom_text(aes(label=n_St_Na), position=position_dodge(width=0.9), vjust=-0.25) +
+  scale_fill_viridis_d()+
+  facet_grid(~ var, scales = 'free_x') +
+  theme_bw() +
+  labs( x = 'Departamento', y = '# Estaciones', caption = "Fuente: IDEAM", fill = NULL) +
+  theme( #axis.text.x = element_text(angle = 90), legend.position="bottom", legend.title = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 60, hjust = 1))
+
+
+
+
+
 
 
 
