@@ -208,7 +208,7 @@ cowsay::say(what = 'Jeferson... Srad - daily', by = 'smallcat')
 # Author: Rodriguez-Espinoza J.
 # 2019
  
-data <- read_csv("test_ideam.csv")
+# data <- read_csv("test_ideam.csv")
 
 # Grafico exploratorio. 
 # data %>% group_by(year = year(Date), month = month(Date)) %>%
@@ -217,9 +217,9 @@ data <- read_csv("test_ideam.csv")
 
 #max(data$sbright, na.rm = T)
 
-# lat <- 2.25
-# lon <- -75.5
-# alt <- 1275
+lat <- 2.25
+lon <- -75.5
+alt <- 1275
 
 # data must have "Date" and 'sbright' (or 'tmax' and 'tmin') variable,
 ## A & B parameters from FAO, 
@@ -245,7 +245,7 @@ get_srad_ideam <- function(data, lat, lon, alt, A = 0.29, B = 0.45, kRs = 0.175)
       extraT = extrat(lubridate::yday(Date), radians(lat))$ExtraTerrestrialSolarRadiationDaily, # Calcula la radiacion extraterrestre
       srad = ap(Date, lat = lat, lon = lon,    # aqui aplica Angstrom-Prescott
                 extraT, A, B, sbright),
-      srad = if_else(is.na(srad), kRs*sqrt(tmax - tmin)*extraT, srad))  # Aqui aplica Hargreaves
+      srad = if_else(is.na(srad), kRs*sqrt(tmax_qc - tmin_qc)*extraT, srad))  # Aqui aplica Hargreaves
   
   max_srad <- mean(step1$extraT)*0.80     # calcula el maximo teorico de radiacion
   
