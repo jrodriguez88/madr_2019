@@ -24,6 +24,7 @@ library(sf)
 library(plotly)
 library(htmlwidgets)
 library(tictoc)
+library(glue)
 
 # Comentarios...
 cowsay::say(what = 'cattle raising', by = 'cow')
@@ -409,10 +410,6 @@ j <- prueba %>%
   mutate(year = lubridate::year(final_Date), month =  lubridate::month(final_Date)) 
 
 
-
-
-
-
 j %>% count( year)
 
 # Segundo filtro...
@@ -500,7 +497,8 @@ acum_filling_data <- function(qc_data, salellite_data){
   coef <- lm( prec ~ prec_chirps, data = All)$coefficients %>% as.numeric()
   
   All <- All %>%
-    mutate(prec = ifelse(is.na(prec) == TRUE, coef[1] + coef[2] * prec_chirps, prec)) %>% 
+    mutate(prec = ifelse(is.na(prec) == TRUE, coef[1] + coef[2] * prec_chirps, prec)) %>%
+    mutate(prec = ifelse(prec < 0, 0, prec)) %>% 
     dplyr::select(Date, prec)
     
 return(All)}
@@ -567,111 +565,213 @@ pp <- ggplot()  +
 ggsave(pp, filename = 'ganaderia/mun.png', height = 8, width = 11, units = "in")
 
 
-# Esta function debe desarrollarse para buscar las estaciones 
-# # Antioquia - Caucasia , Don Matías , San Pedro de los Milagros, Santa Rosa de Osos 
-# fuente %>% filter(Departamento == 'ANTIOQUIA' ) %>% pull(Municipio)
-# 
-# # CAUCASIA, 'SANTA ROSA DE OSOS'
-# 
-# 
-# a <- Mun_shp %>%
-#   filter(NAME_2 %in% c('Caucasia')) %>% 
-#   mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
-#          lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
-# 
-# point<- st_centroid(a) %>% dplyr::select(lon, lat) 
-# 
-# point1 <- st_point(x = c(-76.1,5.88))
-# point <- st_point(x = c(point$lon, point$lat))
-# 
-# st_distance(point, point1) %>% as.numeric()
-# 
-# 
-# sf_dist_mod <- function(data, point_st){
-#   
-#   point <- st_point(point_st %>% as.numeric(.))
-#   
-#   data_dist <- data %>% 
-#     mutate(dist = purrr::map(.x = sf_point, .f = function(x, point){st_distance(x, point) %>% .[,1]}, point = point)) %>% 
-#     unnest(dist) %>% 
-#     dplyr::select(-sf_point) %>% 
-#     arrange(dist)
-#   
-#   return(data_dist)}
-
-
-
-
 
 
 data_for <- fuente %>% filter(row_number() == 1) %>% dplyr::select(data_complete) %>% unnest()
 name <- fuente %>% filter(row_number() == 1) %>% pull(id) 
 
-
-
-
-two_place <- fuente %>% 
-  filter(Departamento %in% c('ANTIOQUIA', 'CORDOBA') ) %>% 
-  dplyr::select(id, data_complete) %>% 
-  unnest(data_complete) %>% 
-  tidyr::pivot_wider(names_from = id, values_from = prec)
-
-fuente %>% 
-  filter(Departamento %in% c('ANTIOQUIA', 'CORDOBA') ) %>% 
-  dplyr::select(lon, lat)
-
-
-
-
-
-
 #### Save CPT files by stations. 
-
 # This are tje functions to make the final file. 
-# CPT_file_s <- function(data, var){
-#   
-#   # data <-  MSD_SO
-#   # var <- 'start_date'
-#   
-#   CPT_data <- data %>%
-#     # dplyr::select(-type) %>%
-#     # unnest %>%
-#     rename(id = 'station_N') %>%
-#     dplyr::select(year, id, !!var) %>%
-#     mutate_if(is.numeric, list(~round(., 1))) %>%
-#     replace(is.na(.), -999) %>% 
-#     spread(key = id, value = !!var) 
-#   
-#   Lat_Long  <- data %>%
-#     # dplyr::select(-id, -data) %>%
-#     # unnest %>%
-#     rename(x = Lon, y = Lat) %>% 
-#     dplyr::select(x, y) %>%
-#     unique %>%
-#     t()
-#   
-#   colnames(Lat_Long) <- paste0(1:10)
-#   rownames(Lat_Long) <- NULL
-#   
-#   Lat_Long <- add_column(as_tibble(Lat_Long), year = c('cpt:X', 'cpt:Y'), .before = 1)
-#   
-#   names(Lat_Long) <- c('', paste0('V',1:10))
-#   names(CPT_data) <- c('', paste0('V',1:10))
-#   
-#   # =-=-=-=-=-=-=-=-=-=-=-=
-#   CPT_data <- CPT_data %>%
-#     mutate_if(is.factor, as.character) %>%
-#     mutate_if(is.character, as.numeric)  %>%
-#     rbind(Lat_Long, .)
-#   
-#   file <- paste0('D:/OneDrive - CGIAR/Desktop/USAID-Regional/USAID-REGIONAL/MSD_Index/to_proof_in_CPT/stations/', var, '.txt')
-#   
-#   sink(file = file)
-#   cat('xmlns:cpt=http://iri.columbia.edu/CPT/v10/', sep = '\n')
-#   cat('cpt:nfield=1', sep = '\n')
-#   cat(glue("cpt:field=days, cpt:nrow=36, cpt:ncol=10, cpt:col=station, cpt:row=T, cpt:units=julian;cpt:missing=-999"), sep = '\n')
-#   cat(write.table(CPT_data, sep = '\t', col.names = TRUE, row.names = FALSE, na = "", quote = FALSE))
-#   sink()
-# }
+# creo que var es una region... 
+
+CPT_file_s <- function(data, var){
+  
+  # var <- c('ANTIOQUIA', 'CORDOBA') 
+  # data <- fuente
+
+  two_place <- data %>% 
+    filter(Departamento %in% var) %>% 
+    dplyr::select(id, data_complete) %>% 
+    unnest(data_complete) %>% 
+    tidyr::pivot_wider(names_from = id, values_from = prec) %>% 
+    mutate(Date = format(as.Date(Date), "%Y-%m"))
+  
+
+  Lat_Long  <- data  %>% 
+    filter(Departamento %in% var)  %>%
+    rename(x = lon, y = lat) %>%
+    dplyr::select(x, y) %>%
+    unique %>%
+    t()
+
+  colnames(Lat_Long) <- paste0(1:ncol(Lat_Long))
+  rownames(Lat_Long) <- NULL
+
+  Lat_Long <- add_column(as_tibble(Lat_Long), year = c('cpt:X', 'cpt:Y'), .before = 1)
+
+  names(Lat_Long) <- names(two_place)
+
+  # =-=-=-=-=-=-=-=-=-=-=-=
+  CPT_data <- two_place %>%
+    rbind(Lat_Long, .)
+  
+  names(CPT_data)[1] = ''
+  
+  var_m <- paste0(var, collapse="_")
+  file <- paste0('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/regions/', var_m, '.txt')
+
+  sink(file = file)
+  cat('xmlns:cpt=http://iri.columbia.edu/CPT/v10/', sep = '\n')
+  cat('cpt:nfield=1', sep = '\n')
+  cat(glue::glue("cpt:field=prcp, cpt:nrow={nrow(two_place)}, cpt:ncol={ncol(CPT_data)-1}, cpt:col=station, cpt:row=T, cpt:units=mm; cpt.missing=-999"), sep = '\n')
+  cat(write.table(CPT_data, sep = '\t', col.names = TRUE, row.names = FALSE, na = "", quote = FALSE))
+  sink()
+}
+
+
+
+cowsay::say(what = paste0(dpto, collapse = '_') , by = "owl")
+tictoc::tic()
+CPT_file_s(data =  fuente, var = dpto)
+CPT_file_s(data =  fuente, var = c("CUNDINAMARCA", "BOYACA"))
+CPT_file_s(data =  fuente, var = c("ANTIOQUIA", "CORDOBA"))
+CPT_file_s(data =  fuente, var = 'CESAR')
+tictoc::toc() # 20.65
+
+
+
+# =----------------------------------------------------------
+cowsay::say(what = 'Distancia a Poligonos', by = 'owl')
+# =----------------------------------------------------------
+
+
+
+data_spatial <- fuente %>% 
+  dplyr::select(lon, lat, id, Departamento, Municipio) %>% 
+  mutate(sf_point = purrr::map2(.x = lon, .y = lat, .f = function(x,y){st_point(c(x,y))})) 
+
+
+
+# =--------------------------------------------------
+# Function to calculate spatial distances at x point.
+sf_dist_mod <- function(data, point_st){
+  
+  point <- st_point(point_st %>% as.numeric(.))
+  
+  data_dist <- data %>% 
+    mutate(dist = purrr::map(.x = sf_point, .f = function(x, point){st_distance(x, point) %>% .[,1]}, point = point)) %>% 
+    unnest(dist) %>% 
+    dplyr::select(-sf_point) %>% 
+    arrange(dist)
+  
+  return(data_dist)}
+# =--------------------------------------------------
+
+
+# Mun__filter <- Mun_shp %>%
+#   filter(NAME_2 %in% c('Caucasia' , 'Don Matías' , 'San Pedro de los Milagros', 'Santa Rosa de Osos', 
+#                        'Lorica' ,  'Planeta Rica', 'Chiquinquirá' , 'Duitama', 'Zipaquirá') | 
+#            NAME_1 == 'Cesar') %>% 
+#   mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+#          lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+
+
+f <- Mun__filter %>% 
+  dplyr::select(NAME_1, NAME_2, lon, lat) %>% 
+  as_tibble() %>% 
+  filter(NAME_1 != 'Cesar')
+
+
+
+tictoc::tic()
+f <- f %>% 
+  mutate(Dpt = case_when(NAME_1 == 'Antioquia' ~ 'ANTIOQUIA', 
+                         NAME_1 == 'Boyacá' ~ 'BOYACA', 
+                         NAME_1 == 'Córdoba' ~ 'CORDOBA', 
+                         NAME_1 == 'Cundinamarca' ~ 'CUNDINAMARCA', 
+                         TRUE ~ NAME_1)) %>% 
+  dplyr::select(-geometry) %>% 
+  nest(-NAME_1, -Dpt, -NAME_2 ) %>% 
+  rename(lat_lon = 'data') %>% 
+  mutate(data = purrr::map(.x = Dpt, .f = function(x, datos){filter(datos, Departamento == x)}, datos  = data_spatial)) %>% 
+  mutate(distance = purrr::map2(.x = data, .y = lat_lon, .f = function(x, y){sf_dist_mod(x, y)})) %>% 
+  # dplyr::select(Departamento,  Municipio, distance) %>% 
+  # rename(Obj_M = 'Municipio') %>% 
+  mutate(min = purrr::map(.x = distance, .f = function(x){slice(x, 1)})) %>% 
+  unnest(min)
+tictoc::toc()
+  
+
+# Guardando los archivos de las estaciones mas cercanas...
+f %>% 
+  dplyr::select(-Dpt, -data, -lat_lon, -NAME_1, -distance) %>% 
+  write_csv(path = 'ganaderia/M_near_places.csv')
+
+# Todas las distancias respecto al sitio de interes en el departamento. 
+f %>% 
+  dplyr::select(-Dpt, -data, -lat_lon, -NAME_1, -lon, -lat, -id, -Departamento, -Municipio, -dist) %>% 
+  unnest() %>% 
+  write_csv(path = 'ganaderia/all_distance.csv')
+
+# Estaciones relativamente cercanas (en caso de que se quiera abarcar una zona mas grande).
+near_02 <- f %>% 
+  dplyr::select(-Dpt, -data, -lat_lon, -NAME_1, -lon, -lat, -id, -Departamento, -Municipio, -dist) %>% 
+  unnest() %>% 
+  filter(dist < 0.2)
+
+near_02 %>% write_csv(path = 'ganaderia/distance_02.csv')
+
+
+
+# Incluyendo el cesar (todo el departamento de interes...)
+CESAR <- fuente %>%  
+  dplyr::select(lon, lat, id, Departamento, Municipio ) %>% 
+  filter(Departamento == 'CESAR')  
+
+
+
+Cercanas_C <- near_02 %>%
+  dplyr::select(-NAME_2, -dist) %>% 
+  bind_rows(. , CESAR)
+  
+Cercanas_C  %>% write_csv(path = 'ganaderia/distance_02_c.csv')
+  
+
+
+#  CESAR --- AGUACHICA (por si acaso) ...
+
+
+# Aguachica 
+
+
+
+total <- f %>% 
+  dplyr::select(lon, lat, id, Departamento, Municipio ) %>% 
+  bind_rows(. , filter(CESAR, Municipio == 'AGUACHICA'))
+
+
+write_csv(total, path = 'ganaderia/CM_near_places.csv')
+
+
+
+# =------------ Graph...
+COL_shp <-  getData('GADM', country='COL', level=1) %>% crop(extent(-77 , -72 , 3.5 , 11.5 )) %>% st_as_sf()
+DPTO_shp <- COL_shp %>% filter(NAME_1 %in% departamento) %>%
+  mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+         lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+
+
+m <- ggplot()  +
+  geom_sf(data = Mun__filter, aes(fill = NAME_1), color = gray(.5)) + 
+  geom_text(data = DPTO_shp, aes(label = NAME_1, x = lon, y = lat), hjust= -1) +
+  geom_point(data = fuente, aes(x = lon, y = lat, label = id, label2 = Municipio, label3 = Nombre)) +
+  geom_point(data = Cercanas_C, aes(x = lon, y = lat, label = id, label2 = Municipio), colour = 'orange') +
+  geom_point(data = total, aes(x = lon, y = lat, label = id, label2 = Municipio), colour = 'red') +
+  geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+  geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) +
+  theme_bw() +
+  labs(title = glue::glue('Total: {nrow(fuente)}'), x = 'Longitud',
+       y = 'Latitud',
+       caption = "Fuente: IDEAM") +
+  theme( legend.position = 'none',
+         panel.grid.minor = element_blank(),
+         strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+         strip.text = element_text(face = "bold"))
+
+ggsave(m, filename = 'ganaderia/stationN.png', height = 8, width = 9, units = "in")
+
+
+
+
 
 
