@@ -226,7 +226,7 @@ cowsay::say('Individual graphs.')
 
 # ...
 # "Dec-Jan-Feb" "Mar-Apr-May"
-season_mod <- filter(country_mod, season == 'Dec-Jan-Feb')
+season_mod <- filter(country_mod, season == "Dec-Jan-Feb") %>% mutate(prob = round(prob, 2))
 
 a <- ggplot()  +
   geom_sf(data = Mun__filter, color = gray(.5)) + 
@@ -316,7 +316,7 @@ prueba_cat <- country_mod %>%
   
 cat_f <- ggplot()  +
   geom_sf(data = Mun__filter, color = gray(.5)) + 
-  geom_point(data = prueba_cat, aes(x = longitud, y = latitud, colour = as.factor(type), 
+  geom_point(data = mutate(prueba_cat, Below = round(Below, 2), Normal = round(Normal, 2), Above = round(Above, 2)  ) , aes(x = longitud, y = latitud, colour = as.factor(type), 
                                                        label = id, 
                                                        label2 = Departamento, 
                                                        label3 = Municipio, 
@@ -353,7 +353,31 @@ kendall_mod <- country %>% full_join(all_distance, .) %>%
   unique()
 
 table_all <- inner_join(prueba_cat, kendall_mod)
-
 table_all %>% write_csv('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/principal_values.csv')
 
 
+# =----
+AFC <- ggplot()  +
+  geom_sf(data = Mun__filter, color = gray(.5)) + 
+  geom_point(data = mutate(table_all, kendall =  round(kendall, 2)), aes(x = longitud, y = latitud, colour = kendall, 
+                                    label = id, 
+                                    label2 = Departamento, 
+                                    label3 = Municipio)) +
+  #  c("#FF0000", "#006633", "#004C99")
+  scale_colour_gradient2(low = "#FF0000", mid = 'snow', high = "#004C99") + 
+  geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+  geom_sf(data = DPTO_shp, fill = NA, color = gray(.1)) + 
+  theme_bw() +
+  # facet_wrap( ~ season, labeller = labeller(season = season_label))  + 
+  facet_wrap( ~ season) + 
+  labs(x = 'Longitud',
+       y = 'Latitud', colour = 'Probability ') +
+  theme( panel.grid.minor = element_blank(),
+         strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+         strip.text = element_text(face = "bold"))
+
+ggsave('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/png/AFC.png' , height = 8, width = 11, units = "in")
+
+AFC_html <- ggplotly(AFC)
+saveWidget( AFC_html,
+            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/final_graphs/AFC_html.html')
