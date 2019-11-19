@@ -18,6 +18,8 @@ library(sf)
 library(plotly)
 library(htmlwidgets)
 library(tictoc)
+library(future)
+library(furrr)
 
 load(file = "catalog.rds")
 # = -----
@@ -204,6 +206,7 @@ ggsave(pp, filename = 'maize/plots_ideam_20_more/all_var.png', height = 8, width
 # =-------------------------------------------------------
 
 # =--------------------------------------------------
+
 # Function to calculate spatial distances at x point.
 sf_dist_mod <- function(data, point_st){
   
@@ -262,7 +265,6 @@ nearest <- ggplot()  +
   labs( y = 'Latitud', x = 'Longitud', caption = "Fuente: IDEAM")
 
 ggsave(nearest, filename = 'maize/plots_ideam_20_more/nearest.png', height = 8, width = 11, units = "in")
-
 
 
 # =--------------------------------------------------
@@ -398,10 +400,6 @@ datos %>%
 
 # Correr radiacion... y guardar los archivos brutos y qc (por si acaso)... 
 # Luego guardar los de radiacion...
-
-
-
-
 srad_if <- function(exist, data, lat, lon, alt){
   
   if(exist == TRUE){
@@ -428,3 +426,235 @@ tratando %>%
   filter(row_number() == 3) %>% 
   unnest()
 
+
+
+
+
+
+# =--------------------------------------------------------------------------
+# =--------------------------------------------------------------------------
+# =--------------------------------------------------------------------------
+
+cowsay::say(what = 'Pruebas en lo referente al llenado de datos', by = 'owl')
+
+
+
+
+datos_mod <- datos  %>% dplyr::select(-data, -dist, -distance, -rows)
+
+
+# Deberiamos tener los datos diarios para el pais... 
+# Otra cosa a tener en cuenta es conocer el nuevo porcentaje de NA... 
+# Ademas obtener la nueva fecha final... 
+# Tener los datos satelitales de prec y temp. 
+# 
+
+
+
+# mutate(NA_data = purrr::map(.x = data, .f = function(x){ dplyr::select(x, prec) %>% naniar::miss_var_summary() }), 
+#          final_Date = purrr::map(.x = data, .f = function(x){x %>% slice(n()) %>% pull(Date)})) 
+
+
+
+#  Haciendo pruebas para todo lo de los NA... entonces 
+
+ajam <- datos_mod %>% 
+  dplyr::select(id, Departamento, lon, lat, alt,qc_climate) %>% 
+  filter(row_number() == 2) %>% 
+  dplyr::select(qc_climate) %>% 
+  unnest()
+
+
+
+
+
+# =-------------------------------------------------- 
+# Para descargar NASA-Power...
+# Revisar lo que tengo de codigos de diario para obtener los datos de Chirps. 
+
+
+# Aqui se esta calculando el % de NA despues del control de calidad...
+a <- datos_mod %>% 
+  dplyr::select( id, Departamento, lon, lat, alt,qc_climate) %>% 
+  mutate(NA_preliminar = purrr::map(.x = qc_climate, .f = function(x){x  %>% dplyr::select(-Date) %>% naniar::miss_var_summary()}), 
+         Dates = purrr::map(.x = qc_climate, .f = function(x){slice(x, 1, n()) %>% dplyr::pull(Date) %>% tibble(start_Date = .[1], end_Date = .[2]) %>% dplyr::select(-.) %>% unique()})) %>%
+  unnest(Dates)
+
+
+
+
+f <- a %>% filter(row_number() == 3) %>% dplyr::select(qc_climate) %>% 
+  unnest() 
+
+  ggplot(f, aes(x = Date, y = prec_qc)) + 
+  geom_line() + 
+  theme_bw()
+
+  ggplot(f, aes(x = Date, y = tmax_qc)) + 
+    geom_line() + 
+    theme_bw()
+  
+  ggplot(f, aes(x = Date, y = tmin_qc)) + 
+    geom_line() + 
+    theme_bw()
+  
+  
+  
+  ggplot(f, aes(x = Date, y = sbright)) + 
+    geom_line() + 
+    theme_bw()
+  
+  
+  
+  
+# =-----------------------------------------------------------------------------------------
+# 1. Hacer el qc para todos los datos del departamento... 
+# 2. Filtrar las estaciones con 20% para faltantes
+# 3. Pegarle las estaciones de interes...
+# 4. Filtrar Tolima. 
+# 5. Dejar como periodo de interes 1982 - 2015.
+# Ojo!!!! = Mirar el cod de Lizeth antes para verificiar que información se necesita. 
+# Guardar los graphs de control de calidad de las estaciones, con periodos de faltantes... 
+# =------------------------------------------------------------------------------------------
+  
+filter(datos, Departamento != 'TOLIMA')
+# filter(new_select, Departamento != 'TOLIMA')
+
+id_dep <- data_filter %>% filter(Departamento != 'TOLIMA') %>% pull( id)
+
+fila_2 <- ideam_raw %>%
+  bind_rows(.id = "var") %>% 
+  ungroup() %>% 
+  dplyr::select(-years, -na_percent, -idate, -fdate) %>% 
+  filter(var != 'rhum' ) %>% 
+  filter(id %in% id_dep) %>%
+  nest(-id) %>% 
+  mutate(rows = purrr::map(.x = data, .f = nrow)) %>% 
+  unnest(rows) %>% 
+  mutate(data_join = purrr::map(.x = data, .f = full_all_var))  %>% 
+  mutate(ncol = purrr::map(.x = data_join, .f = ncol)) %>% 
+  unnest(ncol) %>% 
+  filter(ncol > 3)
+
+
+# Calcular el numero de columnas (por lo menos saber que variables tiene)... 
+# fila_2 %>% 
+# En fila 2 eliminar aquellos que no tengan tmin 
+
+fila_2 <- fila_2 %>% 
+  mutate(var_3 = purrr::map(.x = data_join, .f = function(x){ names(x) %in% c('prec', 'tmax', 'tmin') %>% sum })) %>% 
+  unnest(var_3) %>% 
+  filter(var_3 == 3)
+
+
+
+
+tictoc::tic()
+# =---- Aqui se hace el QC...
+prueba2 <- dplyr::select(fila_2, -data, -rows, -ncol) %>% # filter(row_number() == 7) %>% 
+  rename(data = 'data_join') %>% 
+  make_qc(.)
+tictoc::toc() # 7.02 min. 
+
+# Aqui debo poner el departamento... porque necesito hacer el llenado con eso... 
+prueba_mod2 <- prueba2 %>% 
+  dplyr::select(-var_3, -data) %>% 
+  mutate(NA_preliminar = purrr::map(.x = qc_climate, .f = function(x){x  %>% dplyr::select(-Date) %>% naniar::miss_var_summary()}), 
+         Dates = purrr::map(.x = qc_climate, .f = function(x){slice(x, 1, n()) %>% dplyr::pull(Date) %>% tibble(start_Date = .[1], end_Date = .[2]) %>% dplyr::select(-.) %>% unique()})) %>%
+  unnest(Dates) %>% 
+  mutate(Departamento = purrr::map(.x = id, .f = function(x, data){filter(data, id == x) %>% pull(Departamento)}, data = data_filter)) %>% 
+  unnest(Departamento)
+
+
+
+select_var <- function(x, y, var){
+  
+  dplyr::select(y, Date, var) %>% 
+    setNames(c('Date', glue::glue('s_{x}')))
+  
+}
+
+
+
+# Para prueba...
+
+
+# QC_by_var <- prueba_mod2 %>% 
+#   filter(Departamento == 'HUILA') %>% 
+#   dplyr::select(id, qc_climate) %>%
+#   mutate(data_tmin = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmin_qc'), 
+#          data_tmax = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmax_qc'), 
+#          data_prec = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'prec_qc'))
+
+path_RClimTool <- 'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/para_RClimTool/'
+
+fun_Save <- function(id_st, QC_by_var, var){
+  # =------------
+  data_para <- QC_by_var %>% 
+    dplyr::select(-id) %>%
+    group_split(n = row_number()) %>% 
+    purrr::map(.f = function(x){select(x, -n)}) %>% 
+    purrr::map(unnest) %>% 
+    reduce(full_join, by = "Date") %>% 
+    filter(Date > '1982-01-01' & Date < '2015-12-31')
+  
+  id_data <- data_para %>% 
+    naniar::miss_var_summary() %>% 
+    filter(pct_miss < 35) %>% 
+    filter(row_number() != n()) %>% 
+    pull(variable)
+  
+  data_final <- data_para %>% dplyr::select(Date, id_data)
+  cond <- sum(isTRUE(names(data_final) %in%  id_st))
+  
+  if(cond == 0){
+    data_total <- bind_cols(data_final, dplyr::select(data_para, id_st))} else{ 
+      data_total <-  data_final}
+  
+  write_csv(x = data_total, path = glue::glue('{path_RClimTool}/{var}_{id_st}.csv'))
+}
+
+# prueba_mod2 %>% 
+#   dplyr::select(Departamento, id, qc_climate) %>% 
+#   nest(-Departamento) %>% 
+#   mutate(QC_by_var = purrr::map(.x = data, .f = function(x){
+#     x %>% mutate(data_tmin = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmin_qc'), 
+#                  data_tmax = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmax_qc'), 
+#                  data_prec = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'prec_qc')) })) %>% 
+#   mutate(id_st = paste0('s_', c(21045010, 23215030))) %>% 
+  # mutate(a = purrr::map2(.x = id_st, .y = ))
+
+
+
+# f <- 
+prueba_mod2 %>% dplyr::select(Departamento, id, qc_climate) %>% 
+  mutate(data_tmin = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmin_qc')) %>%
+  dplyr::select(-qc_climate) %>% 
+  nest(-Departamento) %>% 
+  mutate(id_st = paste0('s_', c(21045010, 23215030)))  %>% 
+  # filter(row_number() == 1)
+  mutate(data_save_min = purrr::map2(.x = id_st, .y = data, .f = fun_Save, var = 'tmin'))
+
+# id_st <- pull(f, id_st)
+# var = 'tmin'
+# QC_by_var <- dplyr::select(f, data) %>% unnest()
+
+
+prueba_mod2 %>%
+  dplyr::select(Departamento, id, qc_climate) %>%
+  mutate(data_tmin = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmax_qc')) %>%
+  dplyr::select(-qc_climate) %>%
+  nest(-Departamento) %>%
+  mutate(id_st = paste0('s_', c(21045010, 23215030))) %>%
+  mutate(data_save_min = purrr::map2(.x = id_st, .y = data, .f = fun_Save, var = 'tmax'))
+
+
+prueba_mod2 %>%
+  dplyr::select(Departamento, id, qc_climate) %>%
+  mutate(data_tmin = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'prec_qc')) %>%
+  dplyr::select(-qc_climate) %>%
+  nest(-Departamento) %>%
+  mutate(id_st = paste0('s_', c(21045010, 23215030))) %>%
+  mutate(data_save_min = purrr::map2(.x = id_st, .y = data, .f = fun_Save, var = 'prec'))
+
+# \\dapadfs\data_cluster_4\observed\gridded_products\chirps\daily
