@@ -586,7 +586,7 @@ select_var <- function(x, y, var){
 #          data_tmax = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmax_qc'), 
 #          data_prec = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'prec_qc'))
 
-path_RClimTool <- 'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/para_RClimTool/'
+path_RClimTool <- 'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/maize/para_RClimTool/'
 
 fun_Save <- function(id_st, QC_by_var, var){
   # =------------
@@ -596,7 +596,7 @@ fun_Save <- function(id_st, QC_by_var, var){
     purrr::map(.f = function(x){select(x, -n)}) %>% 
     purrr::map(unnest) %>% 
     reduce(full_join, by = "Date") %>% 
-    filter(Date > '1982-01-01' & Date < '2015-12-31')
+    filter(Date > '1981-12-31' & Date < '2015-12-31')
   
   id_data <- data_para %>% 
     naniar::miss_var_summary() %>% 
@@ -611,22 +611,11 @@ fun_Save <- function(id_st, QC_by_var, var){
     data_total <- bind_cols(data_final, dplyr::select(data_para, id_st))} else{ 
       data_total <-  data_final}
   
-  write_csv(x = data_total, path = glue::glue('{path_RClimTool}/{var}_{id_st}.csv'))
+  write_csv(x = data_total, path = glue::glue('{path_RClimTool}/Original/{var}_{id_st}.csv'))
 }
 
-# prueba_mod2 %>% 
-#   dplyr::select(Departamento, id, qc_climate) %>% 
-#   nest(-Departamento) %>% 
-#   mutate(QC_by_var = purrr::map(.x = data, .f = function(x){
-#     x %>% mutate(data_tmin = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmin_qc'), 
-#                  data_tmax = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmax_qc'), 
-#                  data_prec = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'prec_qc')) })) %>% 
-#   mutate(id_st = paste0('s_', c(21045010, 23215030))) %>% 
-  # mutate(a = purrr::map2(.x = id_st, .y = ))
 
-
-
-# f <- 
+# =------
 prueba_mod2 %>% dplyr::select(Departamento, id, qc_climate) %>% 
   mutate(data_tmin = purrr::map2(.x = id, .y = qc_climate, .f = select_var, var = 'tmin_qc')) %>%
   dplyr::select(-qc_climate) %>% 
@@ -657,4 +646,340 @@ prueba_mod2 %>%
   mutate(id_st = paste0('s_', c(21045010, 23215030))) %>%
   mutate(data_save_min = purrr::map2(.x = id_st, .y = data, .f = fun_Save, var = 'prec'))
 
-# \\dapadfs\data_cluster_4\observed\gridded_products\chirps\daily
+
+
+
+
+
+
+# =-------------------------------------------------------------------------------------
+cowsay::say('Solo voy a dejar las mismas estaciones en los 3 archivos (Prec-Temp max and min).', 'owl')
+
+
+path_after <- 'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/Maize/para_RClimTool/Original/'
+
+For_Change <- tibble(names = list.files(path_after) %>% str_remove('.csv') %>% str_remove('_s'), 
+       path = list.files(path_after, full.names = TRUE) ) %>% 
+  mutate(data =  purrr::map(.x = path, .f = function(x){read.csv(x) %>% as.tibble(.)})) %>% 
+  dplyr::select(-path) %>% 
+  separate(names, c('var', 'station'), '_') %>% 
+  nest(-station) 
+
+# =---------------------------------------------------------------------------------------
+# =---------------------------------------------------------------------------------------
+cowsay::say('Para que funcione esta parte se debe crear una carrera\nSolo se usa si se desea guardar archivos.')
+# Esta parte se corre solo si se necesita correr a menos que se desee guardar algo...
+ta <- For_Change %>% dplyr::select(data) %>% filter(row_number() == 2) %>% unnest()
+id_grid <- '23215030'
+
+  prec <- ta %>% dplyr::filter(var == 'prec') %>%dplyr::select(data) %>% unnest()
+  tmax <- ta %>% dplyr::filter(var == 'tmax') %>% dplyr::select(data) %>% unnest()
+  tmin <- ta %>% dplyr::filter(var == 'tmin') %>% dplyr::select(data) %>% unnest()
+  
+  names_all <- intersect(names(tmax),names(tmin)) %>% intersect(. , names(prec))
+  ta <- ta %>% 
+    mutate(data_mod = purrr::map(.x = data, .f = function(x, names_select){select(x, names_select)  %>% 
+        mutate(day = lubridate::day(Date), month = lubridate::month(Date), year = lubridate::year(Date) ) %>%
+        dplyr::select(-Date) %>% 
+        dplyr::select(day, month, year, everything())}, names_select = names_all))
+  
+  ta %>% 
+    mutate(save_path = glue::glue('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/para_RClimTool/{id_grid}/{var}_s_{id_grid}.csv'), 
+           save = purrr::map2(.x = data_mod, .y = save_path, .f = function(x, y){write_csv(x = x, path = y)}))
+
+# =---------------------------------------------------------------------------------------
+# =---------------------------------------------------------------------------------------
+  
+
+  # Arreglar el problema de seleccionar desde 
+  For_Change %>% dplyr::select(data) %>% filter(row_number() == 1) %>% unnest() %>% 
+    filter(row_number() == 3) %>% dplyr::select(data) %>% unnest() %>% pull(Date)
+  
+  # Desde aqui... entonces 
+    
+  
+  # station_t %>% dplyr::filter(Departamento != 'TOLIMA')
+  data_qc <- datos %>% dplyr::filter(Departamento != 'TOLIMA') %>% dplyr::select(-rows, -data, -distance, -dist)
+  
+  names_stations <- pull(data_qc, id)
+  
+  # Coordenadas
+  
+  
+  
+  # Seleccion de datos de temperatura...
+  
+  genTmax <- readr::read_csv('maize/para_RClimTool/Datos_faltantes/data_genTmax.csv')
+  genTmin <- readr::read_csv('maize/para_RClimTool/Datos_faltantes/data_genTmin.csv')
+  
+  
+  
+  # Para Huila... 21045010 
+  genTmax %>% dplyr::select(day, month, year, glue::glue('s_21045010')) %>% rename('tmax' = 's_21045010')
+  genTmin %>% dplyr::select(day, month, year, glue::glue('s_21045010')) %>% rename('tmin' = 's_21045010')
+  
+
+  # Para Cesar 21045010 
+  genTmax %>% dplyr::select(day, month, year, glue::glue('s_23215030')) %>% rename('tmax' = 's_23215030')
+  genTmin %>% dplyr::select(day, month, year, glue::glue('s_23215030')) %>% rename('tmin' = 's_23215030')
+  
+  
+  
+  
+  
+  # Llenado de datos para prec... 
+  library(ncdf4)
+  library(raster)
+  
+  ncdf4::nc_open('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/maize/Data_Chirps.nc')
+  Chirps <- raster::stack('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/maize/Data_Chirps.nc')
+  Chirps %>% names() %>% length()
+  
+  
+  # Huila ... 
+  special_data <- data_qc %>% dplyr::select(lon, lat) %>% filter(row_number() == 1)
+
+  lat <- special_data$lat
+  lon <- special_data$lon
+    
+  options(timeout=180)
+    
+  json_file <- paste0("https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?&request=execute&identifier=SinglePoint&parameters=PRECTOT&startDate=19820101&endDate=",format(as.Date("2015/12/31"),"%Y%m%d"),"&userCommunity=AG&tempAverage=DAILY&outputList=ASCII&lat=",lat,"&lon=",lon)
+  json_data <- rjson::fromJSON(file=json_file)
+  
+  chirpH <- Chirps %>% 
+    raster::extract(., data.frame(x= special_data$lon,y= special_data$lat)) %>% # arreglar aqui 
+    t() %>% as_tibble()
+  
+    
+  qc_huila <- data_qc %>% dplyr::select(qc_climate) %>% filter(row_number() == 1) %>%
+    unnest() %>% dplyr::select(Date, prec_qc) # %>% 
+    # mutate(day = lubridate::day(Date), month = lubridate::month(Date), year = lubridate::year(Date)) %>% 
+    # dplyr::select(-Date)
+  
+  Prec_Huila <- tibble(Date = seq(as.Date("1982/1/1"), as.Date("2015/12/31"), "days")) %>% 
+      mutate(NASA_prec = json_data$features[[1]]$properties$parameter$PRECTOT %>% unlist) %>% 
+    bind_cols(chirpH) %>% 
+    rename( 'Chirps' = 'V1') %>% 
+    full_join(. , qc_huila)
+  
+  
+  Huila <-  Prec_Huila %>%
+    pivot_longer(cols = c('NASA_prec', 'Chirps', 'prec_qc')) %>%
+    ggplot(aes(x = Date, y = value, colour = name)) +
+    geom_line() +
+    theme_bw() +
+    labs(x = NULL, y = 'Precipitación (mm)', colour = NULL)
+  
+  
+  ggsave('maize/para_RClimTool/Huila.png', height = 5, width = 10, units = "in")
+  
+  
+  a_huila <- Prec_Huila %>% drop_na() %>% 
+    mutate(day = lubridate::day(Date), 
+           month = lubridate::month(Date), 
+           year = lubridate::year(Date) )  %>%
+    group_by(month) %>%
+    yardstick::rmse(prec_qc, Chirps) %>% 
+    dplyr::select(month, .estimate) %>%
+    rename('Chirps' = '.estimate')
+  
+  
+  
+  b_huila <- Prec_Huila %>% drop_na() %>% 
+    mutate(day = lubridate::day(Date), 
+           month = lubridate::month(Date), 
+           year = lubridate::year(Date) )  %>%
+    group_by(month) %>%
+    yardstick::rmse(prec_qc, NASA_prec) %>% 
+    dplyr::select(month, .estimate) %>%
+    rename('NASA' = '.estimate')
+  
+  # En este caso gano NASA
+  inner_join(a_huila, b_huila) %>% ungroup() %>%
+    mutate(sR = Chirps - NASA) %>% summarise(dif_m = mean(sR))
+  
+
+  tmax_H <- genTmax %>% dplyr::select(day, month, year, glue::glue('s_21045010')) %>% rename('tmax' = 's_21045010')
+  tmin_H <- genTmin %>% dplyr::select(day, month, year, glue::glue('s_21045010')) %>% rename('tmin' = 's_21045010')
+  
+  inner_join(tmax_H, tmin_H) 
+  
+  
+  fill_Huila <- Prec_Huila %>% 
+    mutate(prec = ifelse(is.na(prec_qc) == TRUE, NASA_prec, prec_qc)) %>% 
+    mutate(day = lubridate::day(Date), 
+           month = lubridate::month(Date), 
+           year = lubridate::year(Date) )  %>% 
+    inner_join(inner_join(tmax_H, tmin_H) ) %>% 
+    dplyr::select(Date, tmax, tmin, prec) %>%
+    setNames(c('Date', 'tmax_qc', 'tmin_qc', 'prec_qc'))
+  
+  
+  
+  Huila_todo <- data_qc %>% filter(row_number() == 1)
+  
+  Huila_New <- srad_if( exist = FALSE, data = fill_Huila, 
+           lat = pull(Huila_todo, lat), lon = pull(Huila_todo, lon), alt = pull(Huila_todo, alt)) %>% 
+    setNames(c('Date', 't_max', 't_min', 'prec', 'sol_rad')) %>%
+    mutate(day = lubridate::day(Date), 
+           month = lubridate::month(Date), 
+           year = lubridate::year(Date) )  %>% 
+    dplyr::select(-Date) %>% 
+    dplyr::select(day, month, year, everything())
+    
+  
+  readr::write_csv(Huila_New, path = 'maize/Huila_Complete.csv')
+
+  
+  
+  
+  
+  # =-----------------------------------------------------  
+  # =-----------------------------------------------------
+  # Cesar ... 
+  special_data2 <- data_qc %>% dplyr::select(lon, lat) %>% filter(row_number() == 2)
+  
+  lat <- special_data2$lat
+  lon <- special_data2$lon
+  
+  options(timeout=180)
+  
+  json_file2 <- paste0("https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?&request=execute&identifier=SinglePoint&parameters=PRECTOT&startDate=19820101&endDate=",format(as.Date("2015/12/31"),"%Y%m%d"),"&userCommunity=AG&tempAverage=DAILY&outputList=ASCII&lat=",lat,"&lon=",lon)
+  json_data2 <- rjson::fromJSON(file=json_file)
+  
+  chirpC <- Chirps %>% 
+    raster::extract(., data.frame(x= special_data2$lon,y= special_data2$lat)) %>% # arreglar aqui 
+    t() %>% as_tibble()
+  
+  
+  qc_cesar <- data_qc %>% dplyr::select(qc_climate) %>% filter(row_number() == 2) %>%
+    unnest() %>% dplyr::select(Date, prec_qc) # %>% 
+  # mutate(day = lubridate::day(Date), month = lubridate::month(Date), year = lubridate::year(Date)) %>% 
+  # dplyr::select(-Date)
+  
+  Prec_Cesar <- tibble(Date = seq(as.Date("1982/1/1"), as.Date("2015/12/31"), "days")) %>% 
+    mutate(NASA_prec = json_data2$features[[1]]$properties$parameter$PRECTOT %>% unlist) %>% 
+    bind_cols(chirpC) %>% 
+    rename( 'Chirps' = 'V1') %>% 
+    full_join(. , qc_cesar)
+  
+  
+
+Cesar <-  Prec_Cesar %>%
+    pivot_longer(cols = c('NASA_prec', 'Chirps', 'prec_qc')) %>%
+    ggplot(aes(x = Date, y = value, colour = name)) +
+    geom_line() +
+    theme_bw() +
+    labs(x = NULL, y = 'Precipitación (mm)', colour = NULL)
+
+
+ggsave('maize/para_RClimTool/Cesar.png', height = 5, width = 10, units = "in")
+
+dplyr::select(Prec_Cesar, -Date) %>% drop_na() %>%
+    summarise(cor_NASA_Original = cor(NASA_prec, prec_qc), 
+              cor_Chirps_Original = cor(Chirps, prec_qc), 
+              cor_Chirps_NASA = cor(Chirps, NASA_prec))
+  
+    
+Prec_Cesar %>% drop_na() %>% 
+  mutate(day = lubridate::day(Date), 
+         month = lubridate::month(Date), 
+         year = lubridate::year(Date) ) %>%
+  mutate(mean_sa = (NASA_prec + Chirps)/2 ) %>%
+  dplyr::group_by(month) %>%
+  summarise(cor_mean = cor(mean_sa, prec_qc), 
+            kendall = cor(mean_sa, prec_qc, method = 'kendall'),
+            cor_NASA_Original = cor(NASA_prec, prec_qc), 
+            kendall_NASA_Original = cor(NASA_prec, prec_qc, method = 'kendall'),
+            cor_Chirps_Original = cor(Chirps, prec_qc), 
+            kendall_Chirps_Original = cor(Chirps, prec_qc, method = 'kendall'), 
+            cor_Chirps_NASA = cor(Chirps, NASA_prec), 
+            kendall_Chirps_NASA = cor(Chirps, NASA_prec, method = 'kendall')) 
+
+
+
+a_cesar <- Prec_Cesar %>% drop_na() %>% 
+  mutate(day = lubridate::day(Date), 
+         month = lubridate::month(Date), 
+         year = lubridate::year(Date) )  %>%
+  group_by(month) %>%
+  yardstick::rmse(prec_qc, Chirps) %>% 
+  dplyr::select(month, .estimate) %>%
+  rename('Chirps' = '.estimate')
+
+
+
+b_cesar <- Prec_Cesar %>% drop_na() %>% 
+  mutate(day = lubridate::day(Date), 
+         month = lubridate::month(Date), 
+         year = lubridate::year(Date) )  %>%
+  group_by(month) %>%
+  yardstick::rmse(prec_qc, NASA_prec) %>% 
+  dplyr::select(month, .estimate) %>%
+  rename('NASA' = '.estimate')
+
+
+# En este caso gano Chirps 
+inner_join(a_cesar, b_cesar)  %>% 
+  ungroup() %>%
+  mutate(sR = Chirps - NASA) %>% 
+  summarise(dif_m = mean(sR))
+
+
+
+
+# Para Cesar 21045010 
+tmax_C <- genTmax %>% dplyr::select(day, month, year, glue::glue('s_23215030')) %>% rename('tmax' = 's_23215030')
+tmin_C <- genTmin %>% dplyr::select(day, month, year, glue::glue('s_23215030')) %>% rename('tmin' = 's_23215030')
+
+inner_join(tmax_C, tmin_C) 
+
+
+fill_Cesar <- Prec_Cesar %>% 
+  mutate(prec = ifelse(is.na(prec_qc) == TRUE, Chirps, prec_qc)) %>% 
+  mutate(day = lubridate::day(Date), 
+         month = lubridate::month(Date), 
+         year = lubridate::year(Date) )  %>% 
+  inner_join(inner_join(tmax_C, tmin_C) ) %>% 
+  dplyr::select(Date, tmax, tmin, prec) %>%
+  setNames(c('Date', 'tmax_qc', 'tmin_qc', 'prec_qc'))
+
+
+
+sbright_C <- data_qc %>% 
+  filter(Departamento == 'CESAR') %>% 
+  dplyr::select(qc_climate) %>% 
+  unnest() %>% 
+  dplyr::select(Date, sbright) %>% 
+  filter(Date > '1981-12-31' & Date <= '2015-12-31')
+
+
+
+fill_Cesar <- full_join(sbright_C, fill_Cesar)
+
+
+
+Cesar_todo <- data_qc %>% filter(row_number() == 2)
+row_1_QC <- Cesar_todo %>% dplyr::select(qc_climate) %>% 
+  unnest() %>% dplyr::select(tmax_qc, tmin_qc) %>% filter(row_number() ==1)
+
+Cesar_New <- srad_if( exist = TRUE, data = fill_Cesar, 
+                      lat = pull(Cesar_todo, lat), 
+                      lon = pull(Cesar_todo, lon), 
+                      alt = pull(Cesar_todo, alt)) %>% 
+  dplyr::select(-sbright) %>%
+  setNames(c('Date', 't_max', 't_min', 'prec', 'sol_rad')) %>%
+  mutate(day = lubridate::day(Date), 
+         month = lubridate::month(Date), 
+         year = lubridate::year(Date) )  %>% 
+  dplyr::select(-Date) %>% 
+  dplyr::select(day, month, year, everything()) %>% 
+  mutate(t_max = ifelse(row_number() == 1, row_1_QC$tmax_qc , t_max), 
+         t_min = ifelse(row_number() == 1, row_1_QC$tmin_qc , t_min))
+
+readr::write_csv(Cesar_New, path = 'maize/Cesar_Complete.csv')
+
+
+
+# Creando el archivo de Chirps 
