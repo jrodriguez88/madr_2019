@@ -799,6 +799,25 @@ id_grid <- '23215030'
   inner_join(a_huila, b_huila) %>% ungroup() %>%
     mutate(sR = Chirps - NASA) %>% summarise(dif_m = mean(sR))
   
+  
+  # correction_Huila <- Prec_Huila %>%
+  #   drop_na() %>%
+  #   filter(Chirps > 0 & NASA_prec > 0) %>%
+  #   mutate(div_Chirps = prec_qc/Chirps, div_NASA = prec_qc/NASA_prec) %>%
+  #   summarise(mean_div_Chirps = mean(div_Chirps), mean_div_NASA = mean(div_NASA))
+  # 
+  # Prec_Huila %>%
+  #   mutate(NASA_prec = NASA_prec * correction_cesar$mean_div_NASA,
+  #          Chirps = Chirps * correction_cesar$mean_div_Chirps) %>%
+  # pivot_longer(cols = c('NASA_prec', 'Chirps', 'prec_qc')) %>%
+  #   ggplot(aes(x = Date, y = value, colour = name)) +
+  #   geom_line() +
+  #   theme_bw() +
+  #   labs(x = NULL, y = 'Precipitación (mm)', colour = NULL)
+  
+  
+  
+  
 
   tmax_H <- genTmax %>% dplyr::select(day, month, year, glue::glue('s_21045010')) %>% rename('tmax' = 's_21045010')
   tmin_H <- genTmin %>% dplyr::select(day, month, year, glue::glue('s_21045010')) %>% rename('tmin' = 's_21045010')
@@ -926,6 +945,23 @@ inner_join(a_cesar, b_cesar)  %>%
   mutate(sR = Chirps - NASA) %>% 
   summarise(dif_m = mean(sR))
 
+# Prueba de lo del sesgo... 
+# 
+# # overlap_cesar <- 
+# correction_cesar <- Prec_Cesar %>% 
+#   drop_na() %>% 
+#   filter(Chirps > 0 & NASA_prec > 0) %>% 
+#   mutate(div_Chirps = prec_qc/Chirps, div_NASA = prec_qc/NASA_prec) %>% 
+#   summarise(mean_div_Chirps = mean(div_Chirps), mean_div_NASA = mean(div_NASA))
+# 
+# Prec_Cesar %>% 
+#   mutate(NASA_prec = NASA_prec * correction_cesar$mean_div_NASA, 
+#          Chirps = Chirps * correction_cesar$mean_div_Chirps) %>%  
+# pivot_longer(cols = c('NASA_prec', 'Chirps', 'prec_qc')) %>%
+#   ggplot(aes(x = Date, y = value, colour = name)) +
+#   geom_line() +
+#   theme_bw() +
+#   labs(x = NULL, y = 'Precipitación (mm)', colour = NULL)
 
 
 
