@@ -847,8 +847,8 @@ id_grid <- '23215030'
     dplyr::select(-Date) %>% 
     dplyr::select(day, month, year, everything())
     
-  
-  readr::write_csv(Huila_New, path = 'maize/Huila_Complete.csv')
+  id_Huila <- filter(station_t, Departamento == 'HUILA') %>% pull(id)
+  readr::write_csv(Huila_New, path = glue::glue('maize/Huila_{id_Huila}.csv'))
 
   
   
@@ -1012,10 +1012,69 @@ Cesar_New <- srad_if( exist = TRUE, data = fill_Cesar,
   dplyr::select(-Date) %>% 
   dplyr::select(day, month, year, everything()) %>% 
   mutate(t_max = ifelse(row_number() == 1, row_1_QC$tmax_qc , t_max), 
-         t_min = ifelse(row_number() == 1, row_1_QC$tmin_qc , t_min))
+         t_min = ifelse(row_number() == 1, row_1_QC$tmin_qc , t_min)) %>% 
+  drop_na()
 
-readr::write_csv(Cesar_New, path = 'maize/Cesar_Complete.csv')
+id_cesar <- filter(station_t, Departamento == 'CESAR') %>% pull(id)
+readr::write_csv(Cesar_New, path = glue::glue('maize/Cesar_{id_cesar}.csv'))
 
 
 
-# Creando el archivo de Chirps 
+# Climatología 
+
+
+tercile <- bind_rows(Cesar_New %>% mutate(id = filter(station_t, Departamento == 'CESAR') %>% pull(id)), 
+                     Huila_New %>% mutate(id = filter(station_t, Departamento == 'HUILA') %>% pull(id))) %>% 
+  dplyr::select(id, day, month,  year, prec) %>% 
+  group_by(id, month, year) %>%
+  summarise(prec = sum(prec)) %>%
+  ungroup() %>%
+  dplyr::select(-year) %>% 
+  group_by(id, month) %>% 
+  summarise(prec_ter_1 = quantile(prec, 0.33), prec_ter_2 = quantile(prec, 0.66))  %>% 
+  pivot_longer(c(-id, -month), names_to = "measure", values_to = "count") %>% 
+  ungroup() %>% 
+  arrange(measure) %>% 
+  pivot_wider(names_from = id , values_from = count) %>%
+  mutate(month = as.integer(month)) %>% 
+  dplyr::select(measure, month, everything() )
+
+
+
+Climatology <- bind_rows(Cesar_New %>% mutate(id = filter(station_t, Departamento == 'CESAR') %>% pull(id)), 
+          Huila_New %>% mutate(id = filter(station_t, Departamento == 'HUILA') %>% pull(id))) %>% 
+  group_by(id, month, year) %>%
+  summarise(t_max = mean(t_max), t_min = mean(t_min), prec = sum(prec), sol_rad = mean(sol_rad)) %>%
+  ungroup() %>%
+  dplyr::select(-year) %>% 
+  group_by(id, month) %>%
+  summarise_all(.funs = mean) %>% 
+  pivot_longer(c(-id, -month), names_to = "measure", values_to = "count") %>% 
+  ungroup() %>% 
+  arrange(measure) %>% 
+  pivot_wider(names_from = id , values_from = count) %>%
+  mutate(month = as.integer(month)) %>% 
+  dplyr::select(measure, month, everything() ) %>% bind_rows(.,tercile)
+
+readr::write_csv(Climatology, path = glue::glue('maize/Climatology.csv'))
+
+
+# Archivo extra para la plataforma IDEAM. 
+para_In <-station_t %>% 
+  filter(Departamento != 'TOLIMA') %>% 
+  dplyr::select(-distance, -Obj_M, -dist, -Municipio)
+
+para_In <- readr::read_csv("//dapadfs/data_cluster_4/observed/weather_station/col-ideam/daily-raw/Copy of stations_catalog_daily.csv") %>% 
+  filter(Code %in% pull(para_In, id)) %>% 
+  dplyr::select(Code, Name, Municipality) %>% 
+  unique() %>% 
+  rename(id = 'Code') %>% 
+  inner_join(para_In, .) %>%
+  mutate(Name = str_remove(Name, ' ')) %>% 
+  dplyr::select(id, Municipality, Name, lat, lon) %>%
+  setNames(c('ext_id', 'municipality', 'name', 'latitude', 'longitude'))
+
+
+pata <- para_In %>% t() 
+
+tibble(names = rownames(pata), col1 = pata[,1], col2 = pata[,2 ]) %>% write_csv(path = 'maize/import.csv', col_names = FALSE)
