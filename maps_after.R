@@ -108,9 +108,13 @@ country <- test %>%
 
 
 all_distance <- readr::read_csv("ganaderia/all_distance.csv") %>% dplyr::select(-NAME_2, -lon, -lat, -dist)
+all_station20 <- read_csv('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/stations_20_more.csv') %>% 
+  dplyr::select(id, Departamento, Municipio)
 
-
-country_mod <- country %>% full_join(all_distance, .) %>% 
+country_mod <- country %>% 
+  mutate(other = purrr::map(.x = id, .f = function(x, data){filter(data, id %in%  x) %>% dplyr::select(-id)}, data = all_station20)) %>% 
+  unnest(other) %>%
+  #full_join(all_distance, .) %>% 
   dplyr::select(zone, id, file, Departamento, Municipio, latitud, longitud, below, normal, above) %>% 
   mutate(file = str_remove(file, 'Oct_')) %>% 
   separate(col = file, into = c('season', 'ers'), sep = '_') %>%
@@ -153,7 +157,7 @@ saveWidget( all_data_html, 'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/gana
 
 # ...
 # "Dec-Jan-Feb" "Mar-Apr-May"
-season_mod <- filter(country_mod, season == 'Dec-Jan-Feb')
+season_mod <- filter(country_mod, season == 'Mar-Apr-May')
 
 season_Graph <- ggplot()  +
   geom_sf(data = Mun__filter, color = gray(.5)) + 
@@ -176,7 +180,7 @@ ggsave('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/png/season_Gra
 
 season_Graph_html <- ggplotly(season_Graph)
 saveWidget( season_Graph_html, 
-            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/graph_int/season_Graph1.html')
+            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/graph_int/season_Graph2.html')
 
 
 
@@ -226,7 +230,7 @@ cowsay::say('Individual graphs.')
 
 # ...
 # "Dec-Jan-Feb" "Mar-Apr-May"
-season_mod <- filter(country_mod, season == "Dec-Jan-Feb") %>% mutate(prob = round(prob, 2))
+season_mod <- filter(country_mod, season == "Mar-Apr-May") %>% mutate(prob = round(prob, 2))
 
 a <- ggplot()  +
   geom_sf(data = Mun__filter, color = gray(.5)) + 
@@ -282,19 +286,19 @@ c <- ggplot()  +
 
 
 arrange_g <- gridExtra::grid.arrange(a, b, c, nrow = 1)
-ggsave('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/png/DEF.png' , arrange_g , height = 8, width = 11, units = "in")
+ggsave('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/png/MAM.png' , arrange_g , height = 8, width = 11, units = "in")
 
 
 
 a_m <- ggplotly(a)
 saveWidget( a_m, 
-            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/final_graphs/DEF_below.html')
+            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/final_graphs/MAM_below.html')
 b_m <- ggplotly(b)
 saveWidget( b_m, 
-            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/final_graphs/DEF_normal.html')
+            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/final_graphs/MAM_normal.html')
 c_m <- ggplotly(c)
 saveWidget( c_m, 
-            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/final_graphs/DEF_above.html')
+            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/final_graphs/MAM_above.html')
 
 # arrange_g_html <- subplot(a_m, b_m, c_m, nrows = 1, shareX = TRUE, shareY = TRUE)
 
@@ -381,3 +385,46 @@ ggsave('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/png/AFC.png' ,
 AFC_html <- ggplotly(AFC)
 saveWidget( AFC_html,
             'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/final_graphs/AFC_html.html')
+
+
+
+
+# =-------------------------------------------------------------------
+# =-------------------------------------------------------------------
+# "CESAR"        "CUNDINAMARCA" "BOYACÁ"       "ANTIOQUIA"    "CÓRDOBA"  
+prueba_dep <- prueba_cat %>% filter(Departamento == 'BOYACÁ')
+# "Antioquia"    "Boyacá"       "Cesar"        "Córdoba"      "Cundinamarca"
+DPTO_shp_f <- DPTO_shp %>% filter(NAME_1 == 'Boyacá')
+Mun__filterD <- Mun_shp %>% filter(NAME_1 == 'Boyacá') %>%
+  filter(NAME_2 %in% c('Caucasia' , 'Don Matías' , 'San Pedro de los Milagros', 'Santa Rosa de Osos', 
+                       'Lorica' ,  'Planeta Rica', 'Chiquinquirá' , 'Duitama', 'Zipaquirá') | 
+           NAME_1 == 'Cesar') %>% 
+  mutate(lon = map_dbl(geometry, ~st_centroid(.x)[[1]]),
+         lat = map_dbl(geometry, ~st_centroid(.x)[[2]]))
+
+cat_f <- ggplot()  +
+  geom_sf(data = Mun__filterD, color = gray(.5)) + 
+  geom_point(data = mutate(prueba_dep, Below = round(Below, 2), Normal = round(Normal, 2), Above = round(Above, 2)  ) , aes(x = longitud, y = latitud, colour = as.factor(type), 
+                                                                                                                            label = id, 
+                                                                                                                            label2 = Departamento, 
+                                                                                                                            label3 = Municipio, 
+                                                                                                                            label4 = Below, 
+                                                                                                                            label5 = Normal,
+                                                                                                                            label6 = Above)) +
+  scale_colour_manual(values = c("#FF0000", "#006633", "#004C99"), labels = c('Below', 'Normal', 'Above')) + 
+  # geom_sf(data = COL_shp, fill = NA, color = gray(.5)) +
+  geom_sf(data = DPTO_shp_f, fill = NA, color = gray(.1)) + 
+  theme_bw() +
+  # facet_wrap( ~ season, labeller = labeller(season = season_label))  + 
+  facet_wrap( ~ season) + 
+  labs(x = 'Longitud',
+       y = 'Latitud', colour = 'Probability ') +
+  theme( panel.grid.minor = element_blank(),
+         strip.background=element_rect(fill="white", size=1.5, linetype="solid"),
+         strip.text = element_text(face = "bold"))
+
+ggsave('D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/Departamentos_final/Boyaca_f.png' , height = 8, width = 11, units = "in")
+
+cat_f_html <- ggplotly(cat_f)
+saveWidget( cat_f_html, 
+            'D:/OneDrive - CGIAR/Desktop/madr_2019/madr_2019/ganaderia/Departamentos_final/Boyaca.html')
